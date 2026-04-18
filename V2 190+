@@ -78,22 +78,19 @@ local function SetupAutoRejoin()
     local TeleportService = game:GetService("TeleportService")
     local Players = game:GetService("Players")
 
-    -- ดักจับเมื่อมีข้อความ Error หรือหน้าต่าง Disconnected เด้งขึ้นมา
     GuiService.ErrorMessageChanged:Connect(function(errorMessage)
         print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ!")
         print("[System] สาเหตุ: " .. tostring(errorMessage))
         print("[System] ⏳ กำลังพยายามเข้าเซิร์ฟเวอร์ใหม่ใน 5 วินาที...")
         
-        task.wait(5) -- รอ 5 วินาทีให้แน่ใจว่าเน็ต/ระบบเคลียร์แล้ว
+        task.wait(5)
         
         pcall(function()
-            -- ใช้การ Teleport เข้า PlaceId เดิม (จะเป็นการสุ่มเซิร์ฟเวอร์ใหม่ ป้องกันการโดนเตะซ้ำจากเซิฟเดิม)
             TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
         end)
     end)
 end
 
--- รันระบบ Auto Rejoin ทันทีแบบไม่ขัดจังหวะโค้ดอื่น
 task.spawn(SetupAutoRejoin)
 -- ============================================
 
@@ -154,7 +151,7 @@ Config.COMBO_COOLDOWN = 1.5
 -- REMOTES & ANIMATIONS
 -- ============================================
 local CombatRegister = Events:WaitForChild("CombatRegister")
-local SkillRemote = Events:WaitForChild("Skill") -- 🦅 ใช้ Remote ของสกิลแทน Dash
+local SkillRemote = Events:WaitForChild("Skill")
 local QuestRemote = Events:WaitForChild("Quest")
 local SetSpawnRemote = Events:WaitForChild("SetSpawn")
 local MeleeAnims = ReplicatedStorage:WaitForChild("CombatAnimations"):WaitForChild("Melee")
@@ -175,7 +172,6 @@ local QUESTS = {
         NPCId = "Becky", Position = Vector3.new(7731.1, -2176.1, -17222.7), SpawnPoint = Vector3.new(7973.7, -2152.7, -17075.0),
         GatherPoint = Vector3.new(7727.7, -2165.6,-17291.8), MinLevel = 190, MaxLevel = 400, TargetQuestName = "Help Becky", TargetMobs = {"Fishman Karate User"}, 
     },
-    -- สามารถเพิ่มเควสเกาะเงือกอื่นๆ ลงไปได้เลยครับ
 }
 
 -- ============================================
@@ -276,7 +272,7 @@ function QuestTracker.UpdateHasActiveQuest()
 end
 
 -- ============================================
--- 🚀 TWEEN FLY SYSTEM + DYNAMIC SAND RADAR
+-- 🚀 TWEEN FLY SYSTEM + HIGH SKY (บินทะยานฟ้า)
 -- ============================================
 local FlySystem = {}
 local activeTween = nil
@@ -301,34 +297,7 @@ function FlySystem.Remove(hrp)
     FlySystem.Stop(hrp)
 end
 
-local lastScanTime = 0
-local cachedIsOcean = false
-local cachedSandY = 0
-
-local function IsOverOceanOptimized(currentPos)
-    if tick() - lastScanTime >= 1 then
-        lastScanTime = tick()
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = {LP.Character}
-        params.IgnoreWater = true
-        local result = workspace:Raycast(currentPos, Vector3.new(0, -5000, 0), params)
-        if result and result.Instance and result.Instance.Name == "Sand" then
-            local fullName = result.Instance:GetFullName()
-            if fullName:find("WaterStuff") or fullName:find("Env") then
-                cachedIsOcean = true
-                cachedSandY = result.Position.Y
-            else
-                cachedIsOcean = false
-            end
-        else
-            cachedIsOcean = false
-        end
-    end
-    return cachedIsOcean, cachedSandY
-end
-
-function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRadar)
+function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if not targetPos or not hrp then return false end
     stopRadius = stopRadius or Config.STOP_RADIUS
     local distance = (targetPos - hrp.Position).Magnitude
@@ -341,13 +310,23 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- ระบบเรดาร์น้ำ
-    if useWaterRadar then
+    -- ☁️ ระบบบินขึ้นฟ้า (หลบภูเขา/เกาะ) เมื่อต้องบินไกลๆ (เช่นไปรับเควส)
+    if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-        local isOcean, sandY = IsOverOceanOptimized(myPos)
-        if horizontalDist > 50 and isOcean then
-            local targetHeight = sandY + 102
-            finalTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
+        local skyHeight = 1000 -- ความสูงบนฟ้าที่ต้องการบินข้าม
+
+        if horizontalDist > 100 then
+            -- ถ้าอยู่ไกลเป้าหมายในแนวราบ
+            if myPos.Y < skyHeight - 50 then
+                -- 1. พุ่งขึ้นฟ้าเป็นแนวดิ่งก่อน
+                finalTarget = Vector3.new(myPos.X, skyHeight, myPos.Z)
+            else
+                -- 2. บินแนวราบบนฟ้าข้ามไปหาจุดหมาย
+                finalTarget = Vector3.new(targetPos.X, skyHeight, targetPos.Z)
+            end
+        else
+            -- 3. ถ้าใกล้จุดหมายแนวราบแล้ว ให้ดิ่งลงมาหาเป้าหมาย
+            finalTarget = targetPos
         end
     end
 
@@ -370,11 +349,13 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
             bv.Parent = hrp
         end
 
-        -- หันหน้าไปหาเป้าหมาย
+        -- หันหน้าไปหาเป้าหมาย (กันหน้ามุดพื้น/เงยฟ้าเกินไป)
         local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
         local lookRot = CFrame.new(hrp.Position)
         if (lookPos - hrp.Position).Magnitude > 0.1 then
             lookRot = CFrame.lookAt(hrp.Position, lookPos).Rotation
+        else
+            lookRot = CFrame.lookAt(hrp.Position, finalTarget).Rotation
         end
 
         activeTween = TweenService:Create(hrp, tInfo, {CFrame = CFrame.new(finalTarget) * lookRot})
@@ -586,7 +567,7 @@ function FarmManager.SetQuest(quest)
         if typeof(quest.GatherPoint) == "Vector3" then
             activeGatherPoints = {quest.GatherPoint} activeGatherPoint = quest.GatherPoint
         elseif type(quest.GatherPoint) == "table" and #quest.GatherPoint > 0 then
-            activeGatherPoints = quest.GatherPoint gatherIndex = 1 activeGatherPoint = activeGatherPoints[gatherIndex]
+             activeGatherPoints = quest.GatherPoint gatherIndex = 1 activeGatherPoint = activeGatherPoints[gatherIndex]
         end
     else
         targetMobNames = {} activeGatherPoints = {} activeGatherPoint = nil activeQuestData = nil 
@@ -784,6 +765,7 @@ function SetSpawnManager.DoSetSpawn(quest)
     if not hrp or not hum then return end
     local startTime = tick()
     while _G.SystemEnabled and LP.Character == char and hrp.Parent and hum.Health > 0 and (hrp.Position - quest.SpawnPoint).Magnitude > 3 do
+        -- ส่ง true เพื่อเปิดระบบบินสูง
         FlySystem.AdjustToTarget(hrp, quest.SpawnPoint, 3, Config.FLY_SPEED, true)
         task.wait()
         if tick() - startTime > 120 then break end
@@ -809,8 +791,10 @@ function QuestManager.AutoAcceptQuest()
     local hum = char and char:FindFirstChild("Humanoid")
     if not hrp or not hum then return nil end
     SetSpawnManager.DoSetSpawn(quest)
+    
     local startTime = tick()
     while _G.SystemEnabled and LP.Character == char and hrp.Parent and hum.Health > 0 and (hrp.Position - quest.Position).Magnitude > 3 do
+        -- ส่ง true เพื่อเปิดระบบบินสูง
         FlySystem.AdjustToTarget(hrp, quest.Position, 3, Config.FLY_SPEED, true)
         task.wait()
         if tick() - startTime > 120 then break end
@@ -931,7 +915,7 @@ task.spawn(function()
                     FarmManager.SetQuest(nil)
                     PullBackSystem.Reset()
                 end
-                
+              
                 if _G.IsRespawning then continue end 
                 if tick() - spawnDelayTick < 4 then continue end
 
@@ -976,4 +960,4 @@ task.spawn(function()
     end
 end)
 
-print("🚀 AUTO FARM V2 READY (Tween Fly + Geppo System)")
+print("🚀 AUTO FARM V2 READY (High Sky Tween + Geppo System)")
