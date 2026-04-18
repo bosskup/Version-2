@@ -362,7 +362,7 @@ local function IsOverOceanOptimized(currentPos)
     return cachedIsOcean, cachedSandY
 end
 
--- ⚠️ ฟังก์ชันบินหลัก
+-- ⚠️ ฟังก์ชันบินหลัก (อัปเดต: บังคับเปิดเรดาร์น้ำเสมอ)
 function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRadar)
     if not targetPos or not hrp then return false end
     stopRadius = stopRadius or Config.STOP_RADIUS
@@ -381,24 +381,28 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
     local myPos = hrp.Position
     local dir = (targetPos - myPos).Unit
 
-    -- 🌊 ระบบบินเหนือ Sand + 107 (ทำงานเฉพาะส่ง true มา)
-    if useWaterRadar then
+    -- 🌊 ระบบบินเหนือ Sand + 102 (แก้ให้ทำงานตลอดเวลา หากไม่ถูกสั่งปิด)
+    if useWaterRadar ~= false then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
         local isOcean, sandY = IsOverOceanOptimized(myPos)
         
         -- ถ้าระยะห่างเกิน 50 และเช็คเจอทราย WaterStuff
         if horizontalDist > 50 and isOcean then
-            -- ล็อคความสูงเป้าหมายให้อยู่เหนือทรายพอดี 107 สตัด
+            -- ล็อคความสูงเป้าหมายให้อยู่เหนือทรายพอดี 102 สตัด
             local targetHeight = sandY + 102
             local tempTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
             
             -- ปรับทิศทางการบินไปที่จุดหมายชั่วคราว
             dir = (tempTarget - myPos).Unit
             
-            -- ถ้าตัวละครเด้งสูงเกินไป บังคับกดหัวลงนิดนึง
-            if myPos.Y > targetHeight + 5 then
+            -- ⬇️ 1. ถ้าตัวละครบินสูงเกินไป (เกิน 50 สตัดจากผิวน้ำ) บังคับกดหัวลง
+            if myPos.Y > targetHeight + 50 then
                  dir = Vector3.new(dir.X, -0.5, dir.Z).Unit
+                 
+            -- ⬆️ 2. [เพิ่มใหม่] ถ้าตัวละครร่วงต่ำกว่าผิวน้ำ (ฉุกเฉิน) บังคับเชิดหัวขึ้นฟ้า!
+            elseif myPos.Y < targetHeight - 2 then
+                 dir = Vector3.new(dir.X, 1, dir.Z).Unit -- พุ่งขึ้นตรงๆ
             end
         end
     end
