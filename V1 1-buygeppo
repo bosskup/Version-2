@@ -397,8 +397,8 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
             dir = (tempTarget - myPos).Unit
             
             -- ⬇️ 1. ถ้าตัวละครบินสูงเกินไป (เกิน 50 สตัดจากผิวน้ำ) บังคับกดหัวลง
-            if myPos.Y > targetHeight + 50 then
-                 dir = Vector3.new(dir.X, -0.5, dir.Z).Unit
+            if myPos.Y > targetHeight + 15 then
+                 dir = Vector3.new(dir.X, -2, dir.Z).Unit
                  
             -- ⬆️ 2. [เพิ่มใหม่] ถ้าตัวละครร่วงต่ำกว่าผิวน้ำ (ฉุกเฉิน) บังคับเชิดหัวขึ้นฟ้า!
             elseif myPos.Y < targetHeight - 2 then
