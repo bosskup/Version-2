@@ -1080,3 +1080,202 @@ task.spawn(function()
 end)
 
 print("🚀 AUTO FARM + QUEST SYSTEM READY (Dynamic Sand Radar + Auto Buy Geppo)")
+
+
+
+-- ============================================
+-- 📈 AUTO STATS SYSTEM (RATIO 2:1 - INTEGRATED)
+-- ============================================
+_G.AutoStatsEnabled = true
+_G.UpgradeAmount = 4 -- จำนวนแต้มที่จะอัปต่อครั้งตามที่ดักรีโมทได้
+
+-- ตั้งเป้าหมายสูงสุด (Cap)
+_G.StatCaps = {
+    Defense = 2000,
+    Strength = 1000
+}
+
+-- 🔍 ฟังก์ชันดึงค่าตัวเลขจาก PlayerGui.Statistics.Main.Stats
+local function GetStatValue(statName)
+    local val = -1
+    pcall(function()
+        local statsFolder = LP.PlayerGui.Statistics.Main.Stats
+        local target = statsFolder:FindFirstChild(statName)
+        if target then
+            for _, v in ipairs(target:GetDescendants()) do
+                if v:IsA("TextLabel") then
+                    local num = tonumber(v.Text:match("%d+"))
+                    if num then val = num break end
+                end
+            end
+        end
+    end)
+    return val
+end
+
+-- 💰 ฟังก์ชันเช็คแต้ม Points คงเหลือ
+local function GetPoints()
+    local points = 0
+    pcall(function()
+        local mainUI = LP.PlayerGui.Statistics.Main
+        for _, v in ipairs(mainUI:GetDescendants()) do
+            -- หา Label ที่มีคำว่า Point หรือมีชื่อที่เกี่ยวข้อง
+            if v:IsA("TextLabel") and (v.Name:lower():find("point") or v.Text:lower():find("point")) then
+                local num = tonumber(v.Text:match("%d+"))
+                if num then points = num break end
+            end
+        end
+    end)
+    return points
+end
+
+-- 🚀 ลูปทำงานของ Auto Stats
+task.spawn(function()
+    local statsRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("stats")
+    
+    while task.wait(0.8) do
+        if _G.SystemEnabled and _G.AutoStatsEnabled and LP.Character then
+            
+            local myPoints = GetPoints()
+            if myPoints <= 0 then continue end -- ถ้าไม่มีแต้มให้ข้ามไปเลย
+            
+            local currentDef = GetStatValue("Defense")
+            local currentStr = GetStatValue("Strength")
+            
+            -- ตรวจสอบว่าอ่านค่าจาก UI ได้สำเร็จหรือไม่
+            if currentDef ~= -1 and currentStr ~= -1 then
+                
+                -- เงื่อนไข Ratio 2:1 (Defense ต้องเยอะกว่า Strength 2 เท่า)
+                if (currentDef < (currentStr * 2)) and (currentDef < _G.StatCaps.Defense) then
+                    -- อัป Defense เมื่ออัตราส่วนยังไม่ถึง หรือยังไม่ตัน
+                    pcall(function()
+                        statsRemote:FireServer("Defense", nil, _G.UpgradeAmount)
+                    end)
+                elseif currentStr < _G.StatCaps.Strength then
+                    -- อัป Strength เมื่อ Defense นำไป 2 เท่าแล้ว
+                    pcall(function()
+                        statsRemote:FireServer("Strength", nil, _G.UpgradeAmount)
+                    end)
+                end
+                
+            elseif currentDef == -1 then
+                -- กรณีหา UI Defense ไม่เจอ (เช่น หน้าต่างปิดอยู่) ให้ลองส่ง Defense ไปก่อนเป็นพื้นฐาน
+                pcall(function()
+                    statsRemote:FireServer("Defense", nil, _G.UpgradeAmount)
+                end)
+            end
+        end
+    end
+end)
+-- ============================================
+-- 🔄 AUTO REJOIN SYSTEM (ป้องกันการโดนเตะ)
+-- ============================================
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+
+-- ตรวจสอบการแจ้งเตือน Error บนหน้าจอ (หลุด / โดนเตะ / เน็ตตัด)
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(5) -- รอ 5 วินาทีเพื่อให้แน่ใจว่าการเชื่อมต่อขาดจริง
+    print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ กำลังพยายามกลับเข้าเกม...")
+    
+    -- ทำการ Warp กลับเข้า Server เดิม (หรือ Server ใหม่ที่ว่าง)
+    pcall(function()
+        if #game.Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(game.PlaceId, LP)
+        else
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+        end
+    end)
+end)
+
+-- แถม: ระบบป้องกันการค้างหน้า 'Teleport Failed' และรันสคริปต์ซ้ำอัตโนมัติ
+local queue_on_tp = syn and syn.queue_on_teleport or queue_on_teleport
+if queue_on_tp then
+    queue_on_tp([[
+        repeat task.wait() until game:IsLoaded()
+        print("Successfully Rejoined!")
+    ]])
+end
+print("✅ [Integrated] Auto Stats Ratio 2:1 System Loaded!")
+-- ============================================
+-- 🖥️ LOW CPU & BLACK SCREEN MODE (SYSTEM)
+-- ============================================
+if _G.LowCPUMode then
+    -- 1. จำกัด FPS (รองรับตัวรันที่มีฟังก์ชัน setfpscap)
+    pcall(function()
+        if setfpscap then
+            setfpscap(_G.FPSCap)
+        end
+    end)
+
+    -- 2. ลดการเรนเดอร์กราฟิก 3D (ช่วยประหยัด CPU ได้มาก)
+    pcall(function()
+        game:GetService("RunService"):Set3dRenderingEnabled(false)
+    end)
+
+    -- 3. สร้างหน้าจอดำ (Black Screen UI)
+    local CoreGui = game:GetService("CoreGui")
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LowCPUScreen"
+    screenGui.IgnoreGuiInset = true
+    
+    -- ป้องกัน UI โดนลบ (รองรับ gethui ของตัวรันยุคใหม่ ถ้าไม่มีให้ไปใส่ใน CoreGui)
+    local targetGui = gethui and gethui() or CoreGui
+    screenGui.Parent = targetGui
+
+    local background = Instance.new("Frame")
+    background.Size = UDim2.new(1, 0, 1, 0)
+    background.BackgroundColor3 = Color3.new(0, 0, 0) -- สีดำสนิท
+    background.Parent = screenGui
+
+    -- 4. ข้อความแสดงสถานะ (FPS, Level, Peli)
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 1, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.TextColor3 = Color3.new(0, 1, 0) -- ตัวหนังสือสีเขียว (แบบ Hacker)
+    statusLabel.TextSize = 35
+    statusLabel.Font = Enum.Font.Code
+    statusLabel.Text = "Loading Data..."
+    statusLabel.Parent = background
+
+    -- 5. ลูปอัปเดตข้อมูลบนหน้าจอ
+    local RunService = game:GetService("RunService")
+    local frames = 0
+    local lastUpdate = tick()
+    local currentFPS = 0
+
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        local now = tick()
+        
+        -- อัปเดตข้อมูลทุกๆ 1 วินาที
+        if now - lastUpdate >= 1 then
+            currentFPS = frames
+            frames = 0
+            lastUpdate = now
+
+            -- ดึงค่าเงิน (Peli)
+            local peli = "0"
+            pcall(function()
+                peli = LP.PlayerGui.HUD.Main.Peli.TextLabel.Text
+            end)
+
+            -- ดึงค่าเลเวล (อิงจาก Path เดียวกับ LevelManager ในระบบฟาร์ม)
+            local level = "0"
+            pcall(function()
+                local levelText = LP.PlayerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+                local levelNum = levelText:match("%d+")
+                if levelNum then level = tostring(levelNum) end
+            end)
+
+            -- อัปเดตข้อความบนจอ
+            statusLabel.Text = string.format(
+                "🟢 LOW CPU MODE ENABLED\n\nFPS: %d\nLevel: %s\nPeli: %s", 
+                currentFPS, 
+                level, 
+                peli
+            )
+        end
+    end)
+    print("[System] 🖥️ เปิดใช้งานโหมดจอดำประหยัดทรัพยากร (FPS Cap: " .. tostring(_G.FPSCap) .. ")")
+end
