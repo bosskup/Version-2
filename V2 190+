@@ -879,16 +879,12 @@ local function AutoEquip()
     local tool = currentBackpack:FindFirstChild("Melee") or currentBackpack:FindFirstChildOfClass("Tool")
     if tool then tool.Parent = char end
 end
-
--- 🦅 GEPPO LOOP (ใช้ตอนเดินทางเท่านั้น)
+-- 🦅 GEPPO LOOP (ใช้แทน Dash สำหรับคนที่มี Geppo แล้ว)
 task.spawn(function()
     while task.wait(0.5) do
         if _G.SystemEnabled and LP.Character then
             local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            
-            -- จะเรียกใช้ Geppo ก็ต่อเมื่อเป้าหมายอยู่ไกลกว่า 20 สตัด (กำลังบินเดินทาง)
-            -- พอถึงระยะตีมอน (ระยะ < 20) มันจะหยุด Geppo ทำให้ตัวละครลอยนิ่งสนิท!
-            if hrp and FlySystem.IsFlyingFar(hrp) then
+            if hrp then
                 pcall(function() 
                     SkillRemote:InvokeServer(unpack({
                         "Sky Walk2",
