@@ -170,7 +170,7 @@ local PunchAnims = {
 local QUESTS = {
     {
         NPCId = "Becky", Position = Vector3.new(7731.1, -2176.1, -17222.7), SpawnPoint = Vector3.new(7973.7, -2152.7, -17075.0),
-        GatherPoint = Vector3.new(7727.7, -2165.6,-17291.8), MinLevel = 190, MaxLevel = 400, TargetQuestName = "Help Becky", TargetMobs = {"Fishman Karate User"}, 
+        GatherPoint = Vector3.new(7727.7, -2165.6,-17291.8), MinLevel = 190, MaxLevel = 400, TargetQuestName = "Help becky", TargetMobs = {"Fishman Karate User"}, 
     },
 }
 
