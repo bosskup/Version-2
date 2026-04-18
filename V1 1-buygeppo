@@ -297,7 +297,6 @@ function QuestTracker.UpdateHasActiveQuest()
         cachedHasQuest = true
     end
 end
-
 -- ============================================
 -- FLY SYSTEM + DYNAMIC SAND RADAR
 -- ============================================
@@ -329,6 +328,7 @@ function FlySystem.Remove(hrp)
     if hrp then hrp.Velocity = Vector3.zero hrp.AssemblyLinearVelocity = Vector3.zero end
 end
 
+-- 🔍 ระบบเรดาร์หา Sand และดึงค่า Y มาคำนวณ (สแกนวิละ 1 ครั้ง)
 local lastScanTime = 0
 local cachedIsOcean = false
 local cachedSandY = 0
@@ -340,12 +340,17 @@ local function IsOverOceanOptimized(currentPos)
         params.FilterType = Enum.RaycastFilterType.Exclude
         local LP = game:GetService("Players").LocalPlayer
         params.FilterDescendantsInstances = {LP.Character}
-        params.IgnoreWater = true
+        params.IgnoreWater = true -- ทะลุน้ำลงไปหาทรายเลย
+
+        -- ยิงเลเซอร์ลงไป 5000 สตัด เพื่อให้ชัวร์ว่าเจอก้นทะเลแน่ๆ
         local result = workspace:Raycast(currentPos, Vector3.new(0, -5000, 0), params)
+        
+        -- เช็คว่าเจอวัตถุชื่อ "Sand" และอยู่ใน "WaterStuff" หรือไม่ (กันไปโดนทรายบนบก)
         if result and result.Instance and result.Instance.Name == "Sand" then
             local fullName = result.Instance:GetFullName()
             if fullName:find("WaterStuff") or fullName:find("Env") then
                 cachedIsOcean = true
+                -- เซฟความสูงของพื้นทราย (Y) เก็บไว้
                 cachedSandY = result.Position.Y
             else
                 cachedIsOcean = false
@@ -357,6 +362,7 @@ local function IsOverOceanOptimized(currentPos)
     return cachedIsOcean, cachedSandY
 end
 
+-- ⚠️ ฟังก์ชันบินหลัก
 function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRadar)
     if not targetPos or not hrp then return false end
     stopRadius = stopRadius or Config.STOP_RADIUS
@@ -368,26 +374,43 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
     end
     
     local currentSpeed = speed or Config.FLY_SPEED
-    if distance < 20 then currentSpeed = math.max(15, currentSpeed * (distance / 20)) end
+    if distance < 20 then 
+        currentSpeed = math.max(15, currentSpeed * (distance / 20)) 
+    end
 
     local myPos = hrp.Position
     local dir = (targetPos - myPos).Unit
 
+    -- 🌊 ระบบบินเหนือ Sand + 107 (ทำงานเฉพาะส่ง true มา)
     if useWaterRadar then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
+        
         local isOcean, sandY = IsOverOceanOptimized(myPos)
+        
+        -- ถ้าระยะห่างเกิน 50 และเช็คเจอทราย WaterStuff
         if horizontalDist > 50 and isOcean then
+            -- ล็อคความสูงเป้าหมายให้อยู่เหนือทรายพอดี 107 สตัด
             local targetHeight = sandY + 102
             local tempTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
+            
+            -- ปรับทิศทางการบินไปที่จุดหมายชั่วคราว
             dir = (tempTarget - myPos).Unit
-            if myPos.Y > targetHeight + 5 then dir = Vector3.new(dir.X, -0.5, dir.Z).Unit end
+            
+            -- ถ้าตัวละครเด้งสูงเกินไป บังคับกดหัวลงนิดนึง
+            if myPos.Y > targetHeight + 5 then
+                 dir = Vector3.new(dir.X, -0.5, dir.Z).Unit
+            end
         end
     end
 
     local bv = getOrCreateBV(hrp)
     bv.Velocity = dir * currentSpeed
+    
     local lookPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
-    if (lookPos - hrp.Position).Magnitude > 0.5 then pcall(function() hrp.CFrame = CFrame.lookAt(hrp.Position, lookPos) end) end
+    if (lookPos - hrp.Position).Magnitude > 0.5 then
+        pcall(function() hrp.CFrame = CFrame.lookAt(hrp.Position, lookPos) end)
+    end
+    
     return false
 end
 
