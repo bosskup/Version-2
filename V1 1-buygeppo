@@ -1,0 +1,1565 @@
+-- ============================================
+-- AUTO FARM + AUTO QUEST SYSTEM (V13.5 - DYNAMIC SAND RADAR +107)
+-- ============================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local LP = Players.LocalPlayer
+-- ============================================
+-- 🎮 AUTO JOIN GAME (เช็คให้อยู่ในเกมและ UI โหลดเสร็จก่อน)
+-- ============================================
+print("[System] ⏳ ตรวจสอบสถานะหน้าล็อบบี้...")
+local Events = ReplicatedStorage:WaitForChild("Events", 10)
+if Events then
+    local playGame = Events:FindFirstChild("playgame") or Events:WaitForChild("playgame", 5)
+    if playGame then
+        while task.wait(1) do
+            -- เช็คว่ามีหน้าต่าง HUD โหลดขึ้นมาหรือยัง (แปลว่าเข้า Main Game แล้ว)
+            local playerGui = LP:FindFirstChild("PlayerGui")
+            local hud = playerGui and playerGui:FindFirstChild("HUD")
+            local mainUI = hud and hud:FindFirstChild("Main")
+            
+            if mainUI and mainUI.Visible then
+                print("[System] ✅ เข้าเกมสำเร็จ! UI โหลดครบแล้ว กำลังเริ่มตรวจสอบสถานะตัวละคร...")
+                task.wait(2) -- รอให้โมเดลตัวละครโหลดลงแมพให้สมบูรณ์อีกนิด
+                break 
+            end
+            
+            -- ถ้ายืนยันไม่ได้ แปลว่ายังอยู่หน้าล็อบบี้ ให้ยิง Remote เข้าเกม
+            pcall(function()
+                playGame:FireServer("Main Game")
+                print("[System] 🎮 กำลังยิง Remote พยายามเข้า Main Game...")
+            end)
+        end
+    end
+else
+    print("[System] ⚠️ ข้ามขั้นตอนล็อบบี้ (อาจจะอยู่ใน Main Game อยู่แล้ว)")
+    task.wait(2)
+end
+
+-- ==========================================
+-- 🛡️ ระบบป้องกันโดนแบนตอนเข้าเกม (Safe Spawn Injection)
+-- ==========================================
+print("[System] ⏳ กำลังรอให้ตัวเกมโหลดเสร็จสมบูรณ์...")
+
+-- 1. รอจนกว่าตัวเกม (Engine) จะโหลดแมพเสร็จ
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+
+-- 2. รอจนกว่าตัวละคร (Character) จะถูกสร้างขึ้นมาบนโลก
+local Char = LP.Character or LP.CharacterAdded:Wait()
+
+print("[System] ⏳ กำลังรอให้ร่างกายตัวละครประกอบเสร็จ...")
+
+-- 3. รอจนกว่าชิ้นส่วนหลัก (RootPart) และระบบเลือด (Humanoid) จะมาครบ
+local HRP = Char:WaitForChild("HumanoidRootPart", 9e9)
+local Hum = Char:WaitForChild("Humanoid", 9e9)
+
+-- 4. [จุดสำคัญที่ 1] รอจนกว่าเลือดจะมีค่ามากกว่า 0 (ป้องกันสคริปต์ทำงานตอนเป็นวิญญาณ)
+repeat task.wait(0.5) until Hum.Health > 0
+
+-- 5. [จุดสำคัญที่ 2 - หัวใจกันแบน!!] แกล้งยืนนิ่งๆ 
+-- เพื่อให้ระบบ Anti-Cheat ของเซิร์ฟเวอร์เคลียร์สถานะว่าเราเกิดอย่างถูกต้องแล้ว
+print("[System] 🛡️ ตัวละครเกิดแล้ว! กำลังเข้าโหมดพรางตัว แกล้งยืนนิ่ง 15 วินาที...")
+task.wait(15) -- ⚠️ อย่าลดเวลานี้นะครับ 15 วิคือปลอดภัยสุดสำหรับ 12 จอ
+
+print("[System] ✅ ทะลุระบบป้องกันสำเร็จ! เริ่มรันสคริปต์ฟาร์มได้เลย!")
+-- ============================================
+-- 🔄 AUTO REJOIN SYSTEM (ระบบเข้าเกมใหม่เมื่อหลุด/โดนเตะ)
+-- ============================================
+local function SetupAutoRejoin()
+    local GuiService = game:GetService("GuiService")
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+
+    -- ดักจับเมื่อมีข้อความ Error หรือหน้าต่าง Disconnected เด้งขึ้นมา
+    GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+        print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ!")
+        print("[System] สาเหตุ: " .. tostring(errorMessage))
+        print("[System] ⏳ กำลังพยายามเข้าเซิร์ฟเวอร์ใหม่ใน 5 วินาที...")
+        
+        task.wait(5) -- รอ 5 วินาทีให้แน่ใจว่าเน็ต/ระบบเคลียร์แล้ว
+        
+        pcall(function()
+            -- ใช้การ Teleport เข้า PlaceId เดิม (จะเป็นการสุ่มเซิร์ฟเวอร์ใหม่ ป้องกันการโดนเตะซ้ำจากเซิฟเดิม)
+            TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
+        end)
+    end)
+end
+
+-- รันระบบ Auto Rejoin ทันทีแบบไม่ขัดจังหวะโค้ดอื่น
+task.spawn(SetupAutoRejoin)
+-- ============================================
+
+
+-- ============================================
+-- 🛑 AUTO KICK SYSTEM (เตะออกเมื่อเลเวล 190)
+-- ============================================
+task.spawn(function()
+    while task.wait(5) do -- เช็คเลเวลทุกๆ 5 วินาที
+        pcall(function()
+            -- ดึงค่าเลเวลจากหน้าจอ UI
+            local playerGui = LP:FindFirstChild("PlayerGui")
+            if playerGui and playerGui:FindFirstChild("HUD") then
+                local levelText = playerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+                local levelNum = tonumber(levelText:match("%d+"))
+                
+                -- ถ้าอ่านเลเวลได้ และเลเวลมากกว่าหรือเท่ากับ 190
+                if levelNum and levelNum >= 190 then
+                    -- สั่งเตะออกจากเซิร์ฟเวอร์ทันที
+                    LP:Kick("🛑 เลเวลถึง 190 แล้ว! ระบบทำการเตะออกเพื่อเซฟเครื่อง/หยุดฟาร์ม")
+                end
+            end
+        end)
+    end
+end)
+
+-- ============================================
+-- ⚔️ เอาโค้ดลูปฟาร์ม / เควส / ANTI AFK ของคุณมาวางต่อท้ายตรงนี้เลยครับ
+-- ============================================
+-- ============================================
+-- ANTI AFK (NO VIRTUAL INPUT)
+-- ============================================
+task.spawn(function()
+    local LP = game:GetService("Players").LocalPlayer
+    if getconnections then
+        for _, connection in pairs(getconnections(LP.Idled)) do
+            connection:Disable()
+        end
+        print("[System] 🛡️ เปิดใช้งาน Anti-AFK (แบบตัดสัญญาณ Idled) เรียบร้อยแล้ว")
+    else
+        warn("[System] ⚠️ ตัวรันของคุณไม่รองรับ getconnections (Anti-AFK แบบนี้อาจไม่ทำงาน)")
+    end
+end)
+
+-- ============================================
+-- GLOBAL VARIABLES & STATES
+-- ============================================
+_G.SystemEnabled = true
+_G.LowCPUMode = false -- 🟢 อยากเปิดจอดำก็ปรับเป็น true ได้เลย
+_G.FPSCap = 10   -- 💡 กำหนด FPS ที่ต้องการตรงนี้ที่เดียวจบ
+
+-- ✅ ล็อค FPS ตอนเริ่มรัน
+if setfpscap then
+    setfpscap(_G.FPSCap) 
+    print("[System] 🎥 ล็อค FPS ไว้ที่ " .. tostring(_G.FPSCap) .. " เรียบร้อยแล้ว")
+else
+    warn("[System] ⚠️ ตัวรันของคุณไม่รองรับคำสั่ง setfpscap")
+end
+
+-- 🛡️ ลูปกันหลุด: ย้ำการล็อค FPS ทุกๆ 5 วินาที
+task.spawn(function()
+    while task.wait(10) do
+        if setfpscap and _G.FPSCap then
+            pcall(function()
+                setfpscap(_G.FPSCap)
+            end)
+        end
+    end
+end)
+
+local currentQuest = nil
+local isProcessingQuest = false
+local cachedHasQuest = false
+
+-- ... (โค้ดส่วน Death Handler ด้านล่างปล่อยไว้ตามเดิม) ...
+-- ============================================
+-- 💀 DEATH HANDLER (แก้บัคตายแล้วยืนนิ่ง + รอ 15 วิ)
+-- ============================================
+_G.IsRespawning = false -- เพิ่มตัวแปรล็อคสถานะ
+
+LP.CharacterAdded:Connect(function(char)
+    _G.IsRespawning = true -- ล็อคลูปหลักไว้
+    print("[System] 💀 ตรวจพบตัวละครเกิดใหม่ กำลังรอเกมโหลด 15 วินาที...")
+    
+    -- รอให้ตัวละครโหลดชิ้นส่วนหลักให้เสร็จก่อน (ป้องกัน error หาตัวไม่เจอ)
+    char:WaitForChild("HumanoidRootPart", 10)
+    
+    -- ⏳ ดีเลย์ 15 วินาที ให้ชัวร์ว่า UI เควสและ Map โหลดเสร็จสมบูรณ์
+    task.wait(15) 
+    
+    -- รีเซ็ตสถานะทั้งหมดเพื่อให้ลูปฟาร์มรับรู้ว่าต้องเริ่มทำงานรอบใหม่
+    isProcessingQuest = false
+    currentQuest = nil
+    cachedHasQuest = false
+    
+    print("[System] ♻️ โหลดเสร็จสิ้น! เคลียร์สถานะและเริ่มลุยฟาร์มต่อ...")
+    _G.IsRespawning = false -- ปลดล็อคให้ลูปหลักทำงานต่อ
+end)
+
+-- ============================================
+-- CONFIGURATION
+-- ============================================
+local Config = {}
+Config.FLY_SPEED = 70 -- ความเร็ว 70
+Config.HEAD_OFFSET = 7
+Config.KILL_OFFSET = 7
+Config.HIT_CHECK_DELAY = 0.15
+Config.KILL_STUCK_TIMEOUT = 32
+Config.STOP_RADIUS = 3.5
+Config.PULL_RADIUS = 250 
+Config.TELEPORT_THRESHOLD = 40
+Config.ATTACK_DELAY = 0.05  
+Config.COMBO_COOLDOWN = 1.5 
+
+-- ============================================
+-- REMOTES & ANIMATIONS
+-- ============================================
+local Events = ReplicatedStorage:WaitForChild("Events")
+local CombatRegister = Events:WaitForChild("CombatRegister")
+local dashRemote = Events:WaitForChild("takestam")
+local QuestRemote = Events:WaitForChild("Quest")
+local SetSpawnRemote = Events:WaitForChild("SetSpawn")
+local MeleeAnims = ReplicatedStorage:WaitForChild("CombatAnimations"):WaitForChild("Melee")
+
+local PunchAnims = {
+    [1] = MeleeAnims:WaitForChild("Punch1"),
+    [2] = MeleeAnims:WaitForChild("Punch2"),
+    [3] = MeleeAnims:WaitForChild("Punch3"),
+    [4] = MeleeAnims:WaitForChild("GroundPunch4"),
+    [5] = MeleeAnims:WaitForChild("GroundPunch5"),
+}
+
+-- ============================================
+-- QUEST DATA
+-- ============================================
+local QUESTS = {
+    {
+        NPCId = "Daph",
+        Position = Vector3.new(-578.6, 5.9, -3431.5),
+        SpawnPoint = nil,
+        GatherPoint = Vector3.new(-647.8, 30.3, -3474.7),
+        MinLevel = 1,
+        MaxLevel = 14,
+        TargetQuestName = "Help Daph",
+        TargetMobs = {"Bandit"},
+    },
+    {
+        NPCId = "Noah",
+        Position = Vector3.new(-1710.4, 4, -3376.7), 
+        SpawnPoint = Vector3.new(-1540.9, 5.1, -3340.3),
+        GatherPoint = Vector3.new(-1795.4, 21.7, -3346.7), 
+        MinLevel = 15,
+        MaxLevel = 19,
+        TargetQuestName = "Help Noah", 
+        TargetMobs = {"Desert Bandit"},
+    },
+    {
+        NPCId = "Robert",
+        Position = Vector3.new(-1445.1, 10.2, -5102.7),
+        SpawnPoint = Vector3.new(-1296.9, 4.2, -5060.6),
+        GatherPoint = Vector3.new(-1501, 68.1, -5249.7),
+        MinLevel = 20,
+        MaxLevel = 24,
+        TargetQuestName = "Help Robert",
+        TargetMobs = {"Corrupt Marine"},
+    },
+    {
+        NPCId = "Kevin",
+        Position = Vector3.new(-1219.4, 63.7, -5194.4),
+        SpawnPoint = Vector3.new(-1296.9, 4.2, -5060.6),
+        GatherPoint = Vector3.new(-1170.6, 71.4, -5248.5),
+        MinLevel = 25,
+        MaxLevel = 29,
+        TargetQuestName = "Help Kevin",
+        TargetMobs = {"Shell's Bandit"},
+    },
+    {
+        NPCId = "Zen",
+        Position = Vector3.new(-3172.1, 12.2, -5226.7),
+        SpawnPoint = Vector3.new(-3150.3, 11.8, -5233.6),
+        GatherPoint = Vector3.new(-3251.4 ,23.6, -5253.7),
+        MinLevel = 30,
+        MaxLevel = 39,
+        TargetQuestName = "Help Zen",
+        TargetMobs = {"Zou Inhabitant"},
+    },
+    {
+        NPCId = "Chef Rice",
+        Position = Vector3.new(-2968.3, 6.6, -6697.7),
+        SpawnPoint = Vector3.new(-2978.9, 52.6, -6796.3),
+        GatherPoint = Vector3.new(-2992.5 , 3.0, -6778.7),
+        MinLevel = 40,
+        MaxLevel = 159,
+        TargetQuestName = "Help Rice",
+        TargetMobs = {"Krieg Pirate"},
+        LockGatherHeight = true,
+    },
+    {
+        NPCId = "Zhen",
+        Position = Vector3.new(4095.7 ,1818.9, -9833.3),
+        SpawnPoint = Vector3.new(3711.4, 1699.7, -9467.8),
+        GatherPoint = { 
+            Vector3.new(4171.3 ,1832.0 ,-9881.4),
+            Vector3.new(4192.9, 1917.2, -9906.8) 
+        },
+        MinLevel = 999,
+        MaxLevel = 1099,
+        TargetQuestName = "Help zhen",
+        TargetMobs = {"Castle Guard"},
+        CustomHeadOffset = 9.1,
+        CustomKillOffset = 9.1,
+    },
+    {
+        NPCId = "Miska",
+        Position = Vector3.new(184.7, 41.5, -11658.7),
+        SpawnPoint = Vector3.new(260.0, 13.0, -11479.3),
+        GatherPoint = Vector3.new(276.4, 55.1, -11757.0),
+        MinLevel = 160,
+        MaxLevel = 200,
+        TargetQuestName = "Help Miska",
+        TargetMobs = {"Gravito's Undermen"},
+        CustomHeadOffset = 8.2, 
+        CustomKillOffset = 8.2,
+    },
+
+       {
+        NPCId = "Becky",
+        Position = Vector3.new(7731.1, -2176.1, -17222.7),
+        SpawnPoint = Vector3.new(7973.7, -2152.7, -17075.0),
+        GatherPoint = Vector3.new(7727.7, -2165.6,-17291.8),
+        MinLevel = 190,
+        MaxLevel = 400,
+        TargetQuestName = "Help Becky", -- ⚠️ 
+        TargetMobs = {"Fishman Karate User"}, -- ⚠️ 
+    },
+
+}
+
+-- ============================================
+-- LEVEL & QUEST TRACKER
+-- ============================================
+local LevelManager = {}
+function LevelManager.Get()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then return 1 end
+    local success, levelVal = pcall(function()
+        return tonumber(playerGui.HUD.Main.Bars.Experience.Detail.Level.Text:match("%d+"))
+    end)
+    return (success and levelVal) and levelVal or 1
+end
+
+function LevelManager.GetBestQuest()
+    local myLevel = LevelManager.Get()
+    for _, data in ipairs(QUESTS) do
+        if myLevel >= data.MinLevel and myLevel <= data.MaxLevel then return data end
+    end
+    return nil
+end
+
+local QuestTracker = {}
+function QuestTracker.GetQuestName()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    local questGui = playerGui:FindFirstChild("Quest")
+    if questGui and questGui:FindFirstChild("Main") and questGui.Main:FindFirstChild("Info") and questGui.Main.Info:FindFirstChild("Top") then
+        local qName = questGui.Main.Info.Top:FindFirstChild("QuestName")
+        if qName and qName:IsA("TextLabel") then return qName.Text end
+    end
+    return nil
+end
+
+function QuestTracker.GetProgress()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then return nil, nil end
+    local questGui = playerGui:FindFirstChild("Quest")
+    if not questGui then return nil, nil end
+
+    local function scan(obj)
+        for _, child in ipairs(obj:GetChildren()) do
+            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                local text = child.Text
+                if text then
+                    local current, total = text:match("(%d+)/(%d+)")
+                    if current and total then return tonumber(current), tonumber(total) end
+                    current, total = text:match("(%d+) of (%d+)")
+                    if current and total then return tonumber(current), tonumber(total) end
+                end
+            end
+            local c, t = scan(child)
+            if c then return c, t end
+        end
+        return nil, nil
+    end
+    return scan(questGui)
+end
+
+function QuestTracker.IsComplete()
+    local current, total = QuestTracker.GetProgress()
+    if current and total and total > 0 then 
+        return current >= total 
+    end
+    
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    local questGui = playerGui and playerGui:FindFirstChild("Quest")
+    if questGui then
+        local function checkText(obj)
+            for _, child in ipairs(obj:GetChildren()) do
+                if child:IsA("TextLabel") or child:IsA("TextButton") then
+                    local text = (child.Text or ""):lower()
+                    if text:find("return") or text:find("completed") or text:find("done") or text:find("talk to") then
+                        return true
+                    end
+                end
+                if checkText(child) then return true end
+            end
+            return false
+        end
+        if checkText(questGui) then return true end
+    end
+    
+    return false
+end
+
+function QuestTracker.UpdateHasActiveQuest()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then cachedHasQuest = false return end
+    
+    local questGui = playerGui:FindFirstChild("Quest")
+    if not questGui then cachedHasQuest = false return end
+    
+    local main = questGui:FindFirstChild("Main")
+    
+    if questGui:IsA("ScreenGui") and not questGui.Enabled then cachedHasQuest = false return end
+    if main and not main.Visible then cachedHasQuest = false return end
+    
+    local name = QuestTracker.GetQuestName()
+    if not name or name:gsub("%s", "") == "" or name:lower():find("none") or name:lower():find("no quest") or name == "QuestName" or name == "Label" then 
+        cachedHasQuest = false
+    else
+        cachedHasQuest = true
+    end
+end
+
+-- ============================================
+-- FLY SYSTEM + DYNAMIC SAND RADAR
+-- ============================================
+local FlySystem = {}
+local function getOrCreateBV(hrp)
+    local bv = hrp:FindFirstChild("FlyBV")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "FlyBV"
+        bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+        bv.P = 1e5
+        bv.Parent = hrp
+    end
+    return bv
+end
+
+function FlySystem.Stop(hrp)
+    if hrp then
+        local bv = hrp:FindFirstChild("FlyBV")
+        if bv then bv.Velocity = Vector3.zero end
+        hrp.Velocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+function FlySystem.Remove(hrp)
+    if hrp and hrp:FindFirstChild("FlyBV") then hrp.FlyBV:Destroy() end
+    if hrp then hrp.Velocity = Vector3.zero hrp.AssemblyLinearVelocity = Vector3.zero end
+end
+
+-- 🔍 ระบบเรดาร์หา Sand และดึงค่า Y มาคำนวณ (สแกนวิละ 1 ครั้ง)
+local lastScanTime = 0
+local cachedIsOcean = false
+local cachedSandY = 0
+
+local function IsOverOceanOptimized(currentPos)
+    if tick() - lastScanTime >= 1 then
+        lastScanTime = tick()
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local LP = game:GetService("Players").LocalPlayer
+        params.FilterDescendantsInstances = {LP.Character}
+        params.IgnoreWater = true -- ทะลุน้ำลงไปหาทรายเลย
+
+        -- ยิงเลเซอร์ลงไป 5000 สตัด เพื่อให้ชัวร์ว่าเจอก้นทะเลแน่ๆ
+        local result = workspace:Raycast(currentPos, Vector3.new(0, -5000, 0), params)
+        
+        -- เช็คว่าเจอวัตถุชื่อ "Sand" และอยู่ใน "WaterStuff" หรือไม่ (กันไปโดนทรายบนบก)
+        if result and result.Instance and result.Instance.Name == "Sand" then
+            local fullName = result.Instance:GetFullName()
+            if fullName:find("WaterStuff") or fullName:find("Env") then
+                cachedIsOcean = true
+                -- เซฟความสูงของพื้นทราย (Y) เก็บไว้
+                cachedSandY = result.Position.Y
+            else
+                cachedIsOcean = false
+            end
+        else
+            cachedIsOcean = false
+        end
+    end
+    return cachedIsOcean, cachedSandY
+end
+
+-- ⚠️ ฟังก์ชันบินหลัก
+function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRadar)
+    if not targetPos or not hrp then return false end
+    stopRadius = stopRadius or Config.STOP_RADIUS
+    local distance = (targetPos - hrp.Position).Magnitude
+    
+    if distance <= stopRadius then
+        FlySystem.Stop(hrp)
+        return true
+    end
+    
+    local currentSpeed = speed or Config.FLY_SPEED
+    if distance < 20 then 
+        currentSpeed = math.max(15, currentSpeed * (distance / 20)) 
+    end
+
+    local myPos = hrp.Position
+    local dir = (targetPos - myPos).Unit
+
+    -- 🌊 ระบบบินเหนือ Sand + 107 (ทำงานเฉพาะส่ง true มา)
+    if useWaterRadar then
+        local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
+        
+        local isOcean, sandY = IsOverOceanOptimized(myPos)
+        
+        -- ถ้าระยะห่างเกิน 50 และเช็คเจอทราย WaterStuff
+        if horizontalDist > 50 and isOcean then
+            -- ล็อคความสูงเป้าหมายให้อยู่เหนือทรายพอดี 107 สตัด
+            local targetHeight = sandY + 102
+            local tempTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
+            
+            -- ปรับทิศทางการบินไปที่จุดหมายชั่วคราว
+            dir = (tempTarget - myPos).Unit
+            
+            -- ถ้าตัวละครเด้งสูงเกินไป บังคับกดหัวลงนิดนึง
+            if myPos.Y > targetHeight + 5 then
+                 dir = Vector3.new(dir.X, -0.5, dir.Z).Unit
+            end
+        end
+    end
+
+    local bv = getOrCreateBV(hrp)
+    bv.Velocity = dir * currentSpeed
+    
+    local lookPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
+    if (lookPos - hrp.Position).Magnitude > 0.5 then
+        pcall(function() hrp.CFrame = CFrame.lookAt(hrp.Position, lookPos) end)
+    end
+    
+    return false
+end
+
+function FlySystem.AdjustToMob(hrp, mob, headOffset)
+    if not mob or not mob:FindFirstChild("HumanoidRootPart") then return false end
+    local targetPos = mob.HumanoidRootPart.Position + Vector3.new(0, headOffset or Config.HEAD_OFFSET, 0)
+    return FlySystem.AdjustToTarget(hrp, targetPos, 2, Config.FLY_SPEED)
+end
+
+-- ============================================
+-- PULL BACK SYSTEM
+-- ============================================
+local PullBackSystem = {}
+PullBackSystem.lastCheckTime = 0
+PullBackSystem.pullBackVelocity = {}
+local monsterLastPosition = {}
+local monsterLastSeenTime = {}
+
+function PullBackSystem.Reset()
+    PullBackSystem.StopAllPulling()
+    PullBackSystem.pullBackVelocity = {}
+    monsterLastPosition = {}
+    monsterLastSeenTime = {}
+    PullBackSystem.lastCheckTime = 0
+end
+
+function PullBackSystem.ClearMonsterData(mob)
+    monsterLastPosition[mob] = nil
+    monsterLastSeenTime[mob] = nil
+    if PullBackSystem.pullBackVelocity[mob] then
+        pcall(function() PullBackSystem.pullBackVelocity[mob]:Destroy() end)
+        PullBackSystem.pullBackVelocity[mob] = nil
+    end
+end
+
+function PullBackSystem.CreatePullBV(mobHRP)
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "PullBackBV"
+    bv.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+    bv.P = 5e4
+    bv.Parent = mobHRP
+    return bv
+end
+
+function PullBackSystem.PullMonster(mob, targetPos)
+    if not mob or not mob:FindFirstChild("HumanoidRootPart") then return end
+    local mobHRP = mob.HumanoidRootPart
+    local currentPos = mobHRP.Position
+    local distance = (currentPos - targetPos).Magnitude
+    
+    if distance < 10 then
+        if PullBackSystem.pullBackVelocity[mob] then
+            PullBackSystem.pullBackVelocity[mob]:Destroy()
+            PullBackSystem.pullBackVelocity[mob] = nil
+        end
+        return true
+    end
+    
+    if not PullBackSystem.pullBackVelocity[mob] then
+        PullBackSystem.pullBackVelocity[mob] = PullBackSystem.CreatePullBV(mobHRP)
+    end
+    
+    local dir = (targetPos - currentPos).Unit
+    local speed = math.min(120, distance * 3)
+    PullBackSystem.pullBackVelocity[mob].Velocity = dir * speed
+    return false
+end
+
+function PullBackSystem.CheckAndPullTeleportedMobs(pulledMobs, gatherPoint)
+    if not pulledMobs or type(pulledMobs) ~= "table" or #pulledMobs == 0 or not gatherPoint then return {} end
+    
+    local currentTime = tick()
+    local teleportedMobs = {}
+    
+    for _, mob in ipairs(pulledMobs) do
+        if mob and mob.Parent and mob:FindFirstChild("HumanoidRootPart") and mob.Humanoid.Health > 0 then
+            local currentPos = mob.HumanoidRootPart.Position
+            local distanceFromGather = (currentPos - gatherPoint).Magnitude
+            
+            if monsterLastPosition[mob] then
+                local distanceJump = (currentPos - monsterLastPosition[mob]).Magnitude
+                if distanceJump > 30 and distanceFromGather > Config.TELEPORT_THRESHOLD then
+                    table.insert(teleportedMobs, mob)
+                end
+            end
+            
+            monsterLastPosition[mob] = currentPos
+            monsterLastSeenTime[mob] = currentTime
+        else
+            PullBackSystem.ClearMonsterData(mob)
+        end
+    end
+    return teleportedMobs
+end
+
+function PullBackSystem.FindNewMobs(targetMobNames, gatherPoint, pulledMobs)
+    if not targetMobNames or type(targetMobNames) ~= "table" or #targetMobNames == 0 or not gatherPoint then return {} end
+    
+    local newMobs = {}
+    if tick() - PullBackSystem.lastCheckTime < 0.5 then return newMobs end
+    PullBackSystem.lastCheckTime = tick()
+    
+    local folder = workspace:FindFirstChild("NPCs")
+    if not folder then return newMobs end
+    
+    for _, npc in ipairs(folder:GetChildren()) do
+        if npc.Parent and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 and npc:FindFirstChild("HumanoidRootPart") then
+            local isTarget = false
+            for _, name in ipairs(targetMobNames) do
+                if npc.Name == name then isTarget = true break end
+            end
+            if not isTarget then continue end
+            
+            local alreadyPulled = false
+            if pulledMobs and type(pulledMobs) == "table" then
+                for _, pulled in ipairs(pulledMobs) do
+                    if pulled == npc then alreadyPulled = true break end
+                end
+            end
+            if alreadyPulled then continue end
+            
+            local mobPos = npc.HumanoidRootPart.Position
+            local distance = (mobPos - gatherPoint).Magnitude
+            
+            local yDistance = math.abs(mobPos.Y - gatherPoint.Y)
+            
+            if distance < Config.PULL_RADIUS and yDistance < 35 then 
+                table.insert(newMobs, npc) 
+            end
+        end
+    end
+    return newMobs
+end
+
+function PullBackSystem.StopAllPulling()
+    for mob, bv in pairs(PullBackSystem.pullBackVelocity) do
+        pcall(function() bv:Destroy() end)
+        PullBackSystem.pullBackVelocity[mob] = nil
+    end
+end
+
+-- ============================================
+-- COMBAT SYSTEM
+-- ============================================
+local CombatSystem = {}
+local comboIndex = 1
+local lastAttackTime = 0
+local attacking = false
+local singleCooldownEndTime = 0
+local comboHitCount = 0
+
+local aoeComboIndex = 1
+local lastAoeAttackTime = 0
+local aoeCooldownEndTime = 0
+
+function CombatSystem.SingleAttack(mob)
+    if attacking or not mob or not mob:FindFirstChild("HumanoidRootPart") or mob.Humanoid.Health <= 0 then return false end
+    if tick() < singleCooldownEndTime then return false end
+    
+    attacking = true
+    task.spawn(function()
+        if tick() - lastAttackTime > 3 then 
+            comboIndex = 1
+            comboHitCount = 0
+        end
+        
+        if comboHitCount >= 5 then
+            comboHitCount = 0
+            comboIndex = 1
+            singleCooldownEndTime = tick() + Config.COMBO_COOLDOWN
+            attacking = false
+            return
+        end
+        
+        local anim = PunchAnims[comboIndex]
+        if anim then
+            pcall(function() CombatRegister:InvokeServer(unpack({{"swingsfx", "Melee", comboIndex, "Ground", false, anim, 2, 1.5}})) end)
+            task.wait(Config.ATTACK_DELAY)
+            pcall(function() CombatRegister:InvokeServer(unpack({{ "damage", { mob.HumanoidRootPart }, "Melee", { comboIndex, "Ground", "Melee" }, true, mob.HumanoidRootPart.CFrame, aircombo = "Ground" }})) end)
+            
+            comboHitCount = comboHitCount + 1
+            lastAttackTime = tick()
+            
+            if comboIndex < 5 then
+                comboIndex = comboIndex + 1
+                task.wait(0.05) 
+            else
+                comboIndex = 1
+            end
+        end
+        attacking = false
+    end)
+    return true
+end
+
+function CombatSystem.AoeAttack(mobs, hrp)
+    if attacking or #mobs == 0 then return end
+    if tick() < aoeCooldownEndTime then return end
+
+    local targetsHRP = {}
+    for _, m in ipairs(mobs) do 
+        if m and m:FindFirstChild("HumanoidRootPart") and m.Humanoid and m.Humanoid.Health > 0 then
+            table.insert(targetsHRP, m.HumanoidRootPart)
+        end
+    end
+    if #targetsHRP == 0 then return end
+    
+    attacking = true
+    task.spawn(function()
+        if tick() - lastAoeAttackTime > 3 and tick() > aoeCooldownEndTime then aoeComboIndex = 1 end
+        if aoeComboIndex > 5 then aoeComboIndex = 1 end
+        
+        local anim = PunchAnims[aoeComboIndex]
+        if anim then
+            pcall(function() CombatRegister:InvokeServer(unpack({{"swingsfx", "Melee", aoeComboIndex, "Ground", false, anim, 2, 1.5}})) end)
+            task.wait(Config.ATTACK_DELAY)
+            pcall(function() CombatRegister:InvokeServer(unpack({{ "damage", targetsHRP, "Melee", { aoeComboIndex, "Ground", "Melee" }, true, hrp.CFrame, aircombo = "Ground" }})) end)
+            
+            lastAoeAttackTime = tick()
+            
+            if aoeComboIndex == 5 then
+                aoeCooldownEndTime = tick() + Config.COMBO_COOLDOWN 
+                aoeComboIndex = 1
+            else
+                aoeComboIndex = aoeComboIndex + 1
+                task.wait(0.05) 
+            end
+        end
+        attacking = false
+    end)
+end
+
+-- ============================================
+-- FARM MANAGER
+-- ============================================
+local FarmManager = {}
+local States = { PULL = "PULL", GATHER = "GATHER", KILL = "KILL", KILL_SINGLE = "KILL_SINGLE", WAITING = "WAITING" }
+local farmState = States.PULL
+local pulledMobs = {}
+local targetMobNames = {}
+
+local activeGatherPoints = {} 
+local gatherIndex = 1
+local activeGatherPoint = nil
+
+local activeQuestData = nil 
+local killStartTime = 0
+local lockedKillHeight = 0
+local lastNPCScan = 0
+local currentTargetMob = nil
+local gatherWaitTime = nil
+
+function FarmManager.SetQuest(quest)
+    if quest then
+        targetMobNames = quest.TargetMobs
+        activeQuestData = quest 
+        
+        if typeof(quest.GatherPoint) == "Vector3" then
+            activeGatherPoints = {quest.GatherPoint}
+            activeGatherPoint = quest.GatherPoint
+        elseif type(quest.GatherPoint) == "table" and #quest.GatherPoint > 0 then
+            activeGatherPoints = quest.GatherPoint
+            gatherIndex = 1
+            activeGatherPoint = activeGatherPoints[gatherIndex]
+        end
+    else
+        targetMobNames = {}
+        activeGatherPoints = {}
+        activeGatherPoint = nil
+        activeQuestData = nil 
+    end
+    pulledMobs = {}
+    currentTargetMob = nil
+    farmState = States.PULL
+    lockedKillHeight = 0
+    aoeCooldownEndTime = 0
+    gatherWaitTime = nil
+    PullBackSystem.Reset() 
+end
+
+function FarmManager.PullMob(mob)
+    if not mob or not mob.Parent then return false end
+    for _, m in ipairs(pulledMobs) do
+        if m == mob then return true end
+    end
+    table.insert(pulledMobs, mob)
+    return true
+end
+
+function FarmManager.CheckTeleportedMobs()
+    if not activeGatherPoint or not pulledMobs or type(pulledMobs) ~= "table" or #pulledMobs == 0 then return false end
+    local teleportedMobs = PullBackSystem.CheckAndPullTeleportedMobs(pulledMobs, activeGatherPoint)
+    local hasTeleported = false
+    for _, mob in ipairs(teleportedMobs) do
+        PullBackSystem.PullMonster(mob, activeGatherPoint)
+        hasTeleported = true
+    end
+    return hasTeleported
+end
+
+function FarmManager.CheckNewMobs()
+    if not activeGatherPoint or not targetMobNames or type(targetMobNames) ~= "table" or #targetMobNames == 0 then return false end
+    local newMobs = PullBackSystem.FindNewMobs(targetMobNames, activeGatherPoint, pulledMobs)
+    local hasNewMobs = false
+    for _, mob in ipairs(newMobs) do
+        FarmManager.PullMob(mob)
+        hasNewMobs = true
+    end
+    return hasNewMobs
+end
+
+function FarmManager.PullAllMobsToGather()
+    if not activeGatherPoint then return false end
+    if not pulledMobs or type(pulledMobs) ~= "table" or #pulledMobs == 0 then return false end
+    
+    local anyPulling = false
+    for _, mob in ipairs(pulledMobs) do
+        if mob and mob.Parent and mob:FindFirstChild("HumanoidRootPart") then
+            local flatMobPos = Vector3.new(mob.HumanoidRootPart.Position.X, 0, mob.HumanoidRootPart.Position.Z)
+            local flatGatherPos = Vector3.new(activeGatherPoint.X, 0, activeGatherPoint.Z)
+            local distance = (flatMobPos - flatGatherPos).Magnitude
+            
+            if distance > 20 then
+                PullBackSystem.PullMonster(mob, activeGatherPoint)
+                anyPulling = true
+            end
+        end
+    end
+    return anyPulling
+end
+
+function FarmManager.Update()
+    if not _G.SystemEnabled or not targetMobNames or type(targetMobNames) ~= "table" or #targetMobNames == 0 or not activeGatherPoint then return end
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local stillAlive = {}
+    if pulledMobs and type(pulledMobs) == "table" then
+        for _, m in ipairs(pulledMobs) do
+            if m and m.Parent and m:FindFirstChild("Humanoid") and m.Humanoid.Health > 0 and m:FindFirstChild("HumanoidRootPart") then
+                table.insert(stillAlive, m)
+            else
+                PullBackSystem.ClearMonsterData(m)
+            end
+        end
+    end
+    pulledMobs = stillAlive
+
+    if farmState == States.PULL then
+        lockedKillHeight = 0
+        gatherWaitTime = nil
+        PullBackSystem.StopAllPulling()
+        
+        if currentTargetMob and (not currentTargetMob.Parent or currentTargetMob.Humanoid.Health <= 0) then currentTargetMob = nil end
+        
+        if not currentTargetMob then
+            if tick() - lastNPCScan > 0.3 then
+                lastNPCScan = tick()
+                local folder = workspace:FindFirstChild("NPCs")
+                if folder then
+                    for _, npc in ipairs(folder:GetChildren()) do
+                        local alreadyPulled = false
+                        if pulledMobs and type(pulledMobs) == "table" then
+                            for _, p in ipairs(pulledMobs) do 
+                                if p == npc then alreadyPulled = true break end 
+                            end
+                        end
+                        
+                        if not alreadyPulled and npc.Parent and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+                            for _, name in ipairs(targetMobNames) do
+                                if npc.Name == name then
+                                    local yDistance = math.abs(npc.HumanoidRootPart.Position.Y - activeGatherPoint.Y)
+                                    if yDistance < 35 then
+                                        currentTargetMob = npc
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                        if currentTargetMob then break end
+                    end
+                end
+                
+                if not currentTargetMob then
+                    if pulledMobs and type(pulledMobs) == "table" and #pulledMobs > 0 then
+                        if #pulledMobs == 1 then
+                            farmState = States.KILL_SINGLE
+                            killStartTime = tick()
+                        else
+                            farmState = States.GATHER
+                        end
+                    else
+                        farmState = States.WAITING
+                    end
+                end
+            end
+        end
+
+        if currentTargetMob then
+            local currentHeadOffset = (activeQuestData and activeQuestData.CustomHeadOffset) or Config.HEAD_OFFSET
+            if FlySystem.AdjustToMob(hrp, currentTargetMob, currentHeadOffset) then
+                CombatSystem.SingleAttack(currentTargetMob)
+                if currentTargetMob.Humanoid.Health < currentTargetMob.Humanoid.MaxHealth then
+                    FarmManager.PullMob(currentTargetMob)
+                    currentTargetMob = nil
+                end
+            end
+        end
+
+    elseif farmState == States.GATHER then
+        if #pulledMobs == 1 then
+            farmState = States.KILL_SINGLE
+            killStartTime = tick()
+            PullBackSystem.StopAllPulling()
+            return
+        end
+
+        FarmManager.CheckTeleportedMobs()
+        FarmManager.CheckNewMobs()
+        FarmManager.PullAllMobsToGather()
+        
+        -- ตอนฟาร์มบนเกาะ ไม่ต้องเปิดเรดาร์น้ำ
+        FlySystem.AdjustToTarget(hrp, activeGatherPoint, 15, Config.FLY_SPEED)
+        
+        if not gatherWaitTime then gatherWaitTime = tick() end
+        
+        local allClose = true
+        if pulledMobs and type(pulledMobs) == "table" then
+            for _, mob in ipairs(pulledMobs) do
+                if mob and mob:FindFirstChild("HumanoidRootPart") then
+                    local flatMobPos = Vector3.new(mob.HumanoidRootPart.Position.X, 0, mob.HumanoidRootPart.Position.Z)
+                    local flatGatherPos = Vector3.new(activeGatherPoint.X, 0, activeGatherPoint.Z)
+                    if (flatMobPos - flatGatherPos).Magnitude > 20 then
+                        allClose = false 
+                        break 
+                    end
+                end
+            end
+        end
+        
+        if allClose or (tick() - gatherWaitTime > 3) then
+            farmState = States.KILL
+            killStartTime = tick()
+            gatherWaitTime = nil
+            PullBackSystem.StopAllPulling()
+        end
+    
+    elseif farmState == States.KILL_SINGLE then
+        local hasNewMobs = FarmManager.CheckNewMobs()
+        
+        if hasNewMobs then
+            farmState = States.GATHER
+            gatherWaitTime = nil
+            return
+        end
+        
+        if not pulledMobs or type(pulledMobs) ~= "table" or #pulledMobs == 0 or (tick() - killStartTime > Config.KILL_STUCK_TIMEOUT) then
+            pulledMobs = {}
+            farmState = States.PULL
+            PullBackSystem.StopAllPulling()
+        else
+            local mob = pulledMobs[1]
+            if mob and mob:FindFirstChild("HumanoidRootPart") then
+                local isReady = false
+                if activeQuestData and activeQuestData.LockGatherHeight and activeGatherPoint then
+                    isReady = FlySystem.AdjustToTarget(hrp, activeGatherPoint, 3, Config.FLY_SPEED)
+                else
+                    local currentHeadOffset = (activeQuestData and activeQuestData.CustomHeadOffset) or Config.HEAD_OFFSET
+                    isReady = FlySystem.AdjustToMob(hrp, mob, currentHeadOffset)
+                end
+                
+                if isReady then
+                    CombatSystem.SingleAttack(mob)
+                end
+            else
+                pulledMobs = {}
+                farmState = States.PULL
+            end
+        end
+
+    elseif farmState == States.KILL then
+        local hasTeleported = false
+        if activeGatherPoint and pulledMobs and type(pulledMobs) == "table" and #pulledMobs > 0 then
+            hasTeleported = FarmManager.CheckTeleportedMobs()
+        end
+        
+        if hasTeleported then
+            farmState = States.GATHER
+            gatherWaitTime = nil
+            return
+        end
+        
+        if not pulledMobs or type(pulledMobs) ~= "table" or #pulledMobs == 0 or (tick() - killStartTime > Config.KILL_STUCK_TIMEOUT) then
+            pulledMobs = {}
+            farmState = States.PULL
+            PullBackSystem.StopAllPulling()
+        else
+            if lockedKillHeight == 0 then
+                local validMobY = nil
+                for _, m in ipairs(pulledMobs) do
+                    if m and m:FindFirstChild("HumanoidRootPart") then
+                        local dist = (Vector3.new(m.HumanoidRootPart.Position.X, 0, m.HumanoidRootPart.Position.Z) - Vector3.new(activeGatherPoint.X, 0, activeGatherPoint.Z)).Magnitude
+                        if dist <= 30 then 
+                            validMobY = m.HumanoidRootPart.Position.Y
+                            break
+                        end
+                    end
+                end
+                
+                if validMobY then
+                    if activeQuestData and activeQuestData.LockGatherHeight and activeGatherPoint then
+                        lockedKillHeight = activeGatherPoint.Y
+                    else
+                        local currentKillOffset = (activeQuestData and activeQuestData.CustomKillOffset) or Config.KILL_OFFSET
+                        lockedKillHeight = validMobY + currentKillOffset
+                    end
+                else
+                    pulledMobs = {}
+                    farmState = States.PULL
+                    return
+                end
+            end
+            
+            local flyPos = Vector3.new(activeGatherPoint.X, lockedKillHeight, activeGatherPoint.Z)
+            FlySystem.AdjustToTarget(hrp, flyPos, 3)
+            CombatSystem.AoeAttack(pulledMobs, hrp)
+        end
+        
+    elseif farmState == States.WAITING then
+        if activeGatherPoint and targetMobNames and type(targetMobNames) == "table" and #targetMobNames > 0 then
+            local newMobs = PullBackSystem.FindNewMobs(targetMobNames, activeGatherPoint, pulledMobs)
+            if #newMobs > 0 then
+                for _, mob in ipairs(newMobs) do FarmManager.PullMob(mob) end
+                farmState = States.GATHER
+            else
+                local distToGather = (hrp.Position - activeGatherPoint).Magnitude
+                if distToGather > 40 then
+                    FlySystem.AdjustToTarget(hrp, activeGatherPoint, 15, Config.FLY_SPEED)
+                    return 
+                else
+                    if activeGatherPoints and #activeGatherPoints > 1 then
+                        gatherIndex = gatherIndex + 1
+                        if gatherIndex > #activeGatherPoints then gatherIndex = 1 end
+                        activeGatherPoint = activeGatherPoints[gatherIndex]
+                        task.wait(0.5)
+                        return
+                    end
+                end
+            end
+        end
+        FlySystem.Stop(hrp)
+    end
+end
+
+-- QUEST & SPAWN MANAGER
+-- ============================================
+local SetSpawnManager = {}
+SetSpawnManager.LastSpawnNPC = nil
+function SetSpawnManager.DoSetSpawn(quest)
+    if not quest or not quest.SpawnPoint then return end
+    if SetSpawnManager.LastSpawnNPC == quest.NPCId then
+        print("[System] จุดเกิดของ " .. quest.NPCId .. " ถูกเซ็ตไปแล้ว ข้ามการเซ็ตจุดเกิดใหม่...")
+        return
+    end
+
+    local char = LP.Character -- ✅ เพิ่มบรรทัดนี้ เพื่อจำร่างปัจจุบันไว้
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return end
+
+    print("[System] บินไปเซ็ตจุดเกิดที่ NPC: " .. quest.NPCId)
+    local startTime = tick()
+    
+    -- ✅ เพิ่มเงื่อนไขเช็ค LP.Character == char ถ้าร่างเปลี่ยน ลูปจะตัดทันที
+    while _G.SystemEnabled and LP.Character == char and hrp.Parent and hum.Health > 0 and (hrp.Position - quest.SpawnPoint).Magnitude > 3 do
+        FlySystem.AdjustToTarget(hrp, quest.SpawnPoint, 3, Config.FLY_SPEED, true)
+        task.wait()
+        if tick() - startTime > 120 then break end
+    end
+
+    if not _G.SystemEnabled or hum.Health <= 0 then return end
+    
+    FlySystem.Stop(hrp)
+    task.wait(1)
+    pcall(function()
+        QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
+        task.wait(0.5)
+        for i = 1, 3 do
+            SetSpawnRemote:FireServer()
+            task.wait(0.3)
+        end
+        QuestRemote:InvokeServer(unpack({{"npcChat", false}}))
+    end)
+    SetSpawnManager.LastSpawnNPC = quest.NPCId
+    print("[System] เซ็ตจุดเกิดเสร็จสมบูรณ์")
+end
+
+local QuestManager = {}
+
+function QuestManager.AutoAcceptQuest()
+    local quest = LevelManager.GetBestQuest()
+    if not quest then 
+        print("[System] หาเควสที่ตรงกับเลเวลไม่เจอ!")
+        return nil 
+    end
+
+    local char = LP.Character -- ✅ เพิ่มบรรทัดนี้
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return nil end
+
+    SetSpawnManager.DoSetSpawn(quest)
+    
+    print("[System] บินไปรับเควส: " .. quest.TargetQuestName)
+    local startTime = tick()
+
+    -- ✅ เพิ่มเงื่อนไขเช็ค LP.Character == char ถ้าร่างเปลี่ยน ลูปจะตัดทันที
+    while _G.SystemEnabled and LP.Character == char and hrp.Parent and hum.Health > 0 and (hrp.Position - quest.Position).Magnitude > 3 do
+        FlySystem.AdjustToTarget(hrp, quest.Position, 3, Config.FLY_SPEED, true)
+        task.wait()
+        if tick() - startTime > 120 then break end
+    end
+
+    if not _G.SystemEnabled or hum.Health <= 0 then return nil end
+
+    FlySystem.Stop(hrp)
+    task.wait(1.5)
+    pcall(function()
+        QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
+        task.wait(0.5)
+        QuestRemote:InvokeServer(unpack({{"takequest", quest.TargetQuestName}}))
+        task.wait(0.5)
+        QuestRemote:InvokeServer(unpack({{"npcChat", false}}))
+    end)
+    task.wait(2.5)
+
+    QuestTracker.UpdateHasActiveQuest()
+    if cachedHasQuest then return quest end
+    return nil
+end
+-- ============================================
+-- UTILITIES & OVERLAP BYPASS & DASH BYPASS
+-- ============================================
+local function bypassOverlap(part)
+    if part:IsA("BasePart") then
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+        for _, child in pairs(part:GetChildren()) do
+            if child:IsA("TouchTransmitter") then
+                child:Destroy()
+            end
+        end
+    end
+end
+
+RunService.Stepped:Connect(function()
+    if _G.SystemEnabled then
+        local char = LP.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                bypassOverlap(part)
+            end
+        end
+    end
+end)
+
+local function AutoEquip()
+    local char = LP.Character
+    if not char then return end
+    if char:FindFirstChildOfClass("Tool") then return end
+    
+    local currentBackpack = LP:FindFirstChild("Backpack")
+    if not currentBackpack then return end
+    
+    local tool = currentBackpack:FindFirstChild("Melee") or currentBackpack:FindFirstChildOfClass("Tool")
+    if tool then tool.Parent = char end
+end
+
+-- 🏃 ลูปยิงรีโมท Dash อัตโนมัติ (ยิง 1 ครั้ง ทุกๆ 1 วินาที)
+task.spawn(function()
+    while task.wait(1) do
+        if _G.SystemEnabled and LP.Character then
+            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                pcall(function() 
+                    local args = {
+                        0.605,
+                        "dash",
+                        hrp.CFrame
+                    }
+                    dashRemote:FireServer(unpack(args)) 
+                end)
+            end
+        end
+    end
+end)
+
+-- ============================================
+-- GUI & MAIN LOOP 
+-- ============================================
+local function SetupGUI()
+    local sg = Instance.new("ScreenGui", CoreGui)
+    sg.Name = "FarmSystem_Pro"
+    sg.ResetOnSpawn = false
+    
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 200, 0, 60)
+    btn.Position = UDim2.new(0.5, -100, 0.05, 0)
+    btn.Text = "AUTO FARM: OFF"
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 18
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    btn.MouseButton1Click:Connect(function()
+        _G.SystemEnabled = not _G.SystemEnabled
+        btn.Text = _G.SystemEnabled and "AUTO FARM: ON" or "AUTO FARM: OFF"
+        btn.BackgroundColor3 = _G.SystemEnabled and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+        
+        if not _G.SystemEnabled then
+            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then FlySystem.Remove(hrp) end
+            FarmManager.SetQuest(nil)
+            PullBackSystem.StopAllPulling()
+        end
+    end)
+end
+
+SetupGUI()
+
+local lastQuestTick = 0
+local mainLoopChar = nil  
+local spawnDelayTick = 0  
+
+task.spawn(function()
+    while task.wait() do
+        if _G.SystemEnabled then
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChild("Humanoid")
+            
+            if hrp and hum and hum.Health > 0 then
+                
+		    if char ~= mainLoopChar then
+                    mainLoopChar = char
+                    spawnDelayTick = tick()
+                    isProcessingQuest = false
+                    cachedHasQuest = false
+                    currentQuest = nil
+                    FarmManager.SetQuest(nil)
+                    PullBackSystem.Reset()
+                end
+                
+                -- 💡 เช็คว่าระบบกำลังโหลดตอนตายอยู่หรือไม่ ถ้าใช่ให้รอก่อน ห้ามข้ามไปทำคำสั่งอื่น
+                if _G.IsRespawning then continue end 
+                if tick() - spawnDelayTick < 4 then continue end
+
+                AutoEquip()
+                
+                if not isProcessingQuest and (tick() - lastQuestTick > 1.5) then
+                    lastQuestTick = tick()
+                    QuestTracker.UpdateHasActiveQuest()
+                    local isDone = QuestTracker.IsComplete()
+                    
+                    if not cachedHasQuest or isDone then
+                        isProcessingQuest = true 
+                        FarmManager.SetQuest(nil) 
+                        currentQuest = QuestManager.AutoAcceptQuest()
+                        
+                        if currentQuest then 
+                            FarmManager.SetQuest(currentQuest) 
+                        end
+                        isProcessingQuest = false
+                        
+                    elseif currentQuest == nil and cachedHasQuest then
+                        currentQuest = LevelManager.GetBestQuest()
+                        if currentQuest then 
+                            SetSpawnManager.DoSetSpawn(currentQuest)
+                            FarmManager.SetQuest(currentQuest) 
+                        end
+                    end
+                end
+                
+                if not isProcessingQuest and currentQuest and cachedHasQuest then
+                    FarmManager.Update()
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================
+-- AUTO AD MANAGER
+-- ============================================
+task.spawn(function()
+    while true do
+        if _G.SystemEnabled then
+            pcall(function()
+                local args = {
+                    3457788725,
+                    "536248645108658"
+                }
+                ReplicatedStorage:WaitForChild("Events"):WaitForChild("ADShop"):FireServer(unpack(args))
+            end)
+            task.wait(240) -- ปรับดีเลย์เป็น 4 นาที
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+print("🚀 AUTO FARM + QUEST SYSTEM READY (Dynamic Sand Radar +107)")
+
+-- ============================================
+-- 📈 AUTO STATS SYSTEM (RATIO 2:1 - INTEGRATED)
+-- ============================================
+_G.AutoStatsEnabled = true
+_G.UpgradeAmount = 4 -- จำนวนแต้มที่จะอัปต่อครั้งตามที่ดักรีโมทได้
+
+-- ตั้งเป้าหมายสูงสุด (Cap)
+_G.StatCaps = {
+    Defense = 2000,
+    Strength = 1000
+}
+
+-- 🔍 ฟังก์ชันดึงค่าตัวเลขจาก PlayerGui.Statistics.Main.Stats
+local function GetStatValue(statName)
+    local val = -1
+    pcall(function()
+        local statsFolder = LP.PlayerGui.Statistics.Main.Stats
+        local target = statsFolder:FindFirstChild(statName)
+        if target then
+            for _, v in ipairs(target:GetDescendants()) do
+                if v:IsA("TextLabel") then
+                    local num = tonumber(v.Text:match("%d+"))
+                    if num then val = num break end
+                end
+            end
+        end
+    end)
+    return val
+end
+
+-- 💰 ฟังก์ชันเช็คแต้ม Points คงเหลือ
+local function GetPoints()
+    local points = 0
+    pcall(function()
+        local mainUI = LP.PlayerGui.Statistics.Main
+        for _, v in ipairs(mainUI:GetDescendants()) do
+            -- หา Label ที่มีคำว่า Point หรือมีชื่อที่เกี่ยวข้อง
+            if v:IsA("TextLabel") and (v.Name:lower():find("point") or v.Text:lower():find("point")) then
+                local num = tonumber(v.Text:match("%d+"))
+                if num then points = num break end
+            end
+        end
+    end)
+    return points
+end
+
+-- 🚀 ลูปทำงานของ Auto Stats
+task.spawn(function()
+    local statsRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("stats")
+    
+    while task.wait(0.8) do
+        if _G.SystemEnabled and _G.AutoStatsEnabled and LP.Character then
+            
+            local myPoints = GetPoints()
+            if myPoints <= 0 then continue end -- ถ้าไม่มีแต้มให้ข้ามไปเลย
+            
+            local currentDef = GetStatValue("Defense")
+            local currentStr = GetStatValue("Strength")
+            
+            -- ตรวจสอบว่าอ่านค่าจาก UI ได้สำเร็จหรือไม่
+            if currentDef ~= -1 and currentStr ~= -1 then
+                
+                -- เงื่อนไข Ratio 2:1 (Defense ต้องเยอะกว่า Strength 2 เท่า)
+                if (currentDef < (currentStr * 2)) and (currentDef < _G.StatCaps.Defense) then
+                    -- อัป Defense เมื่ออัตราส่วนยังไม่ถึง หรือยังไม่ตัน
+                    pcall(function()
+                        statsRemote:FireServer("Defense", nil, _G.UpgradeAmount)
+                    end)
+                elseif currentStr < _G.StatCaps.Strength then
+                    -- อัป Strength เมื่อ Defense นำไป 2 เท่าแล้ว
+                    pcall(function()
+                        statsRemote:FireServer("Strength", nil, _G.UpgradeAmount)
+                    end)
+                end
+                
+            elseif currentDef == -1 then
+                -- กรณีหา UI Defense ไม่เจอ (เช่น หน้าต่างปิดอยู่) ให้ลองส่ง Defense ไปก่อนเป็นพื้นฐาน
+                pcall(function()
+                    statsRemote:FireServer("Defense", nil, _G.UpgradeAmount)
+                end)
+            end
+        end
+    end
+end)
+-- ============================================
+-- 🔄 AUTO REJOIN SYSTEM (ป้องกันการโดนเตะ)
+-- ============================================
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+
+-- ตรวจสอบการแจ้งเตือน Error บนหน้าจอ (หลุด / โดนเตะ / เน็ตตัด)
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(5) -- รอ 5 วินาทีเพื่อให้แน่ใจว่าการเชื่อมต่อขาดจริง
+    print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ กำลังพยายามกลับเข้าเกม...")
+    
+    -- ทำการ Warp กลับเข้า Server เดิม (หรือ Server ใหม่ที่ว่าง)
+    pcall(function()
+        if #game.Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(game.PlaceId, LP)
+        else
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+        end
+    end)
+end)
+
+-- แถม: ระบบป้องกันการค้างหน้า 'Teleport Failed' และรันสคริปต์ซ้ำอัตโนมัติ
+local queue_on_tp = syn and syn.queue_on_teleport or queue_on_teleport
+if queue_on_tp then
+    queue_on_tp([[
+        repeat task.wait() until game:IsLoaded()
+        print("Successfully Rejoined!")
+    ]])
+end
+print("✅ [Integrated] Auto Stats Ratio 2:1 System Loaded!")
+-- ============================================
+-- 🖥️ LOW CPU & BLACK SCREEN MODE (SYSTEM)
+-- ============================================
+if _G.LowCPUMode then
+    -- 1. จำกัด FPS (รองรับตัวรันที่มีฟังก์ชัน setfpscap)
+    pcall(function()
+        if setfpscap then
+            setfpscap(_G.FPSCap)
+        end
+    end)
+
+    -- 2. ลดการเรนเดอร์กราฟิก 3D (ช่วยประหยัด CPU ได้มาก)
+    pcall(function()
+        game:GetService("RunService"):Set3dRenderingEnabled(false)
+    end)
+
+    -- 3. สร้างหน้าจอดำ (Black Screen UI)
+    local CoreGui = game:GetService("CoreGui")
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LowCPUScreen"
+    screenGui.IgnoreGuiInset = true
+    
+    -- ป้องกัน UI โดนลบ (รองรับ gethui ของตัวรันยุคใหม่ ถ้าไม่มีให้ไปใส่ใน CoreGui)
+    local targetGui = gethui and gethui() or CoreGui
+    screenGui.Parent = targetGui
+
+    local background = Instance.new("Frame")
+    background.Size = UDim2.new(1, 0, 1, 0)
+    background.BackgroundColor3 = Color3.new(0, 0, 0) -- สีดำสนิท
+    background.Parent = screenGui
+
+    -- 4. ข้อความแสดงสถานะ (FPS, Level, Peli)
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 1, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.TextColor3 = Color3.new(0, 1, 0) -- ตัวหนังสือสีเขียว (แบบ Hacker)
+    statusLabel.TextSize = 35
+    statusLabel.Font = Enum.Font.Code
+    statusLabel.Text = "Loading Data..."
+    statusLabel.Parent = background
+
+    -- 5. ลูปอัปเดตข้อมูลบนหน้าจอ
+    local RunService = game:GetService("RunService")
+    local frames = 0
+    local lastUpdate = tick()
+    local currentFPS = 0
+
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        local now = tick()
+        
+        -- อัปเดตข้อมูลทุกๆ 1 วินาที
+        if now - lastUpdate >= 1 then
+            currentFPS = frames
+            frames = 0
+            lastUpdate = now
+
+            -- ดึงค่าเงิน (Peli)
+            local peli = "0"
+            pcall(function()
+                peli = LP.PlayerGui.HUD.Main.Peli.TextLabel.Text
+            end)
+
+            -- ดึงค่าเลเวล (อิงจาก Path เดียวกับ LevelManager ในระบบฟาร์ม)
+            local level = "0"
+            pcall(function()
+                local levelText = LP.PlayerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+                local levelNum = levelText:match("%d+")
+                if levelNum then level = tostring(levelNum) end
+            end)
+
+            -- อัปเดตข้อความบนจอ
+            statusLabel.Text = string.format(
+                "🟢 LOW CPU MODE ENABLED\n\nFPS: %d\nLevel: %s\nPeli: %s", 
+                currentFPS, 
+                level, 
+                peli
+            )
+        end
+    end)
+    print("[System] 🖥️ เปิดใช้งานโหมดจอดำประหยัดทรัพยากร (FPS Cap: " .. tostring(_G.FPSCap) .. ")")
+end
