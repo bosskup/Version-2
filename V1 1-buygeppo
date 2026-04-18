@@ -172,11 +172,7 @@ local QUESTS = {
     },
     {
         NPCId = "Robert", Position = Vector3.new(-1445.1, 10.2, -5102.7), SpawnPoint = Vector3.new(-1296.9, 4.2, -5060.6),
-        GatherPoint = Vector3.new(-1501, 68.1, -5249.7), MinLevel = 20, MaxLevel = 24, TargetQuestName = "Help Robert", TargetMobs = {"Corrupt Marine"},
-    },
-    {
-        NPCId = "Kevin", Position = Vector3.new(-1219.4, 63.7, -5194.4), SpawnPoint = Vector3.new(-1296.9, 4.2, -5060.6),
-        GatherPoint = Vector3.new(-1170.6, 71.4, -5248.5), MinLevel = 25, MaxLevel = 29, TargetQuestName = "Help Kevin", TargetMobs = {"Shell's Bandit"},
+        GatherPoint = Vector3.new(-1501, 68.1, -5249.7), MinLevel = 20, MaxLevel = 29, TargetQuestName = "Help Robert", TargetMobs = {"Corrupt Marine"},
     },
     {
         NPCId = "Zen", Position = Vector3.new(-3172.1, 12.2, -5226.7), SpawnPoint = Vector3.new(-3150.3, 11.8, -5233.6),
