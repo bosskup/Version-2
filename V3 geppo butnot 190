@@ -88,7 +88,7 @@ _G.FPSCap = 10
 
 if setfpscap then setfpscap(_G.FPSCap) end
 task.spawn(function()
-    while task.wait(10) do
+    while task.wait(4) do
         if setfpscap and _G.FPSCap then pcall(function() setfpscap(_G.FPSCap) end) end
     end
 end)
