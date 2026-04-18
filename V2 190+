@@ -310,19 +310,21 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- ☁️ ระบบบินขึ้นฟ้า (หลบภูเขา/เกาะ) เมื่อต้องบินไกลๆ (เช่นไปรับเควส)
+    -- 🌊 ระบบบินหลบสิ่งกีดขวางใต้น้ำ (เมืองบาดาล)
     if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-        local skyHeight = 1000 -- ความสูงบนฟ้าที่ต้องการบินข้าม
+        
+        -- ให้ลอยสูงกว่าจุดที่ยืนอยู่หรือเป้าหมาย ประมาณ 80 สตัด (เพื่อข้ามบ้าน/โขดหิน แต่ไม่ชนเพดานเกาะ)
+        local safeHeight = math.max(myPos.Y, targetPos.Y) + 80 
 
-        if horizontalDist > 100 then
+        if horizontalDist > 60 then
             -- ถ้าอยู่ไกลเป้าหมายในแนวราบ
-            if myPos.Y < skyHeight - 50 then
-                -- 1. พุ่งขึ้นฟ้าเป็นแนวดิ่งก่อน
-                finalTarget = Vector3.new(myPos.X, skyHeight, myPos.Z)
+            if myPos.Y < safeHeight - 20 then
+                -- 1. ลอยตัวขึ้นตรงๆ ก่อน
+                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
             else
-                -- 2. บินแนวราบบนฟ้าข้ามไปหาจุดหมาย
-                finalTarget = Vector3.new(targetPos.X, skyHeight, targetPos.Z)
+                -- 2. บินแนวราบข้ามสิ่งกีดขวางไปหาจุดหมาย
+                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
             end
         else
             -- 3. ถ้าใกล้จุดหมายแนวราบแล้ว ให้ดิ่งลงมาหาเป้าหมาย
