@@ -1,0 +1,162 @@
+-- ============================================
+-- 🔄 AUTO REJOIN SYSTEM
+-- ============================================
+local function SetupAutoRejoin()
+    local GuiService = game:GetService("GuiService")
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+
+    GuiService.ErrorMessageChanged:Connect(function(errorMessage)
+        print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ! กำลังเข้าเกมใหม่ใน 5 วินาที...")
+        task.wait(5)
+        pcall(function()
+            TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
+        end)
+    end)
+end
+task.spawn(SetupAutoRejoin)
+
+-- ============================================
+-- 🔍 SYSTEM CHECK (ตรวจเช็คเงื่อนไขก่อนเริ่มฟาร์ม)
+-- ============================================
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+
+local function getLevel()
+    local lv = 0
+    pcall(function()
+        local levelText = LP.PlayerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+        lv = tonumber(levelText:match("%d+"))
+    end)
+    return lv or 0
+end
+
+local function isAtFishmanIsland()
+    local atIsland = false
+    pcall(function()
+        local islandPart = workspace.Islands:FindFirstChild("Fishman Island"):FindFirstChild("Part")
+        if islandPart then
+            if (LP.Character.HumanoidRootPart.Position - islandPart.Position).Magnitude < 300 then
+                atIsland = true
+            end
+        end
+    end)
+    return atIsland
+end
+
+-- 🦅 ฟังก์ชันเช็ค Geppo
+local function HasGeppo()
+    local RS = game:GetService("ReplicatedStorage")
+    local statsPath = RS:FindFirstChild("Stats" .. LP.Name) or RS:FindFirstChild("Stats")
+    
+    if statsPath then
+        local skills = statsPath:FindFirstChild("Skills")
+        if skills then
+            local skyWalk = skills:FindFirstChild("skyWalk")
+            if skyWalk then
+                if skyWalk:IsA("BoolValue") then
+                    return skyWalk.Value
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+print("[System] 🛠️ กำลังเช็คเลเวล, สถานที่ และสกิล Geppo...")
+
+local currentLv = getLevel()
+local alreadyAtFishman = isAtFishmanIsland()
+local hasGeppoSkill = HasGeppo()
+
+-- ============================================
+-- 🔀 ลอจิกแยก 4 กรณี 
+-- ============================================
+
+if currentLv < 190 and not hasGeppoSkill then
+    -- 🚜 กรณีที่ 1: เลเวล < 190 และ "ยังไม่มี Geppo" 
+    print("[System] 🌾 กรณีที่ 1: รัน Auto Farm V1 (ใช้ Dash ฟาร์มปกติ + หาเงินซื้อ Geppo)")
+    task.spawn(function()
+        local success, err = pcall(function()
+            -- โหลด V1 (ตัวเก่า)
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/bosskup/Version-2/refs/heads/main/V1%201-buygeppo"))()
+        end)
+        if not success then print("❌ Error V1: " .. tostring(err)) end
+    end)
+
+elseif currentLv < 190 and hasGeppoSkill then
+    -- 🌟 กรณีที่ 4: เลเวล < 190 แต่ "มี Geppo แล้ว!"
+    print("[System] 🌟 กรณีที่ 4: รัน Auto Farm แบบใช้ Geppo ฟาร์มโลกปกติ (เลเวลยังไม่ถึงเกาะเงือก)")
+    task.spawn(function()
+        local success, err = pcall(function()
+            -- ⚠️ ต้องเอาลิงก์สคริปต์ใหม่ที่ใช้เควสโลกปกติ + ระบบบิน Tween & Geppo มาใส่ตรงนี้ ⚠️
+            print("⏳ [รอลิงก์ กรณีที่ 4] โหลดสคริปต์ฟาร์มโลกปกติด้วย Geppo...")
+            -- loadstring(game:HttpGet("https://raw.githubusercontent.com/bosskup/Version-2/refs/heads/main/V3%20geppo%20butnot%20190"))()
+        end)
+        if not success then print("❌ Error V4: " .. tostring(err)) end
+    end)
+
+elseif currentLv >= 190 and not alreadyAtFishman then
+    -- 🚀 กรณีที่ 2: เลเวล 190+ และ "ยังไม่ได้ไปเกาะเงือก" -> บินไปหน้าพอร์ทัล
+    print("[System] 🚨 กรณีที่ 2: เลเวล 190 แล้ว! กำลังพาไปเกาะเงือก...")
+    
+    local RunService = game:GetService("RunService")
+    local waypoints = {
+        Vector3.new(639.8, -6.6, -11305.7),
+        Vector3.new(1744.9, -94.2, -12328.0),
+        Vector3.new(1793.73, -92.76, -12327.45)
+    }
+    
+    local currentWaypoint = 1
+    local isAutoFlying = true
+    local bv = nil
+    
+    local noclip = RunService.Stepped:Connect(function()
+        if LP.Character then
+            for _, v in pairs(LP.Character:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if not isAutoFlying then return end
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        if not bv or bv.Parent ~= hrp then
+            bv = Instance.new("BodyVelocity", hrp)
+            bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+        end
+
+        local target = waypoints[currentWaypoint]
+        local dist = (target - hrp.Position).Magnitude
+        
+        if dist < 5 then
+            print("[System] ✅ ผ่านจุดที่ " .. currentWaypoint)
+            currentWaypoint = currentWaypoint + 1
+            if currentWaypoint > #waypoints then
+                isAutoFlying = false
+                bv:Destroy()
+                noclip:Disconnect()
+                print("[System] 🎯 ถึงหน้าพอร์ทัลแล้ว! กรุณาเดินเข้าวาร์ป")
+            end
+        else
+            bv.Velocity = (target - hrp.Position).Unit * 80
+            hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(target.X, hrp.Position.Y, target.Z))
+        end
+    end)
+
+elseif currentLv >= 190 and alreadyAtFishman then
+    -- 🔱 กรณีที่ 3: เลเวล 190+ และ "อยู่เกาะเงือกแล้ว"
+    print("[System] 🔱 กรณีที่ 3: รัน Auto Farm V2 (ฟาร์มเกาะเงือกด้วย Geppo)")
+    task.spawn(function()
+        local success, err = pcall(function()
+            -- ⚠️ เอาลิงก์สคริปต์ V2 (ฟาร์มเกาะเงือก) มาใส่ตรงนี้ ⚠️
+            print("⏳ [รอลิงก์ V2] โหลดสคริปต์ฟาร์มเกาะเงือก...")
+            -- loadstring(game:HttpGet("https://raw.githubusercontent.com/bosskup/Version-2/refs/heads/main/V2%20190%2B"))()
+        end)
+        if not success then print("❌ Error V2: " .. tostring(err)) end
+    end)
+end
