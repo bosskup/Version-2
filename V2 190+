@@ -310,20 +310,25 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- 🌊 ระบบบินหลบสิ่งกีดขวางใต้น้ำ (เมืองบาดาล)
+    -- 🌊 ระบบบินสำหรับเกาะใต้ดิน (ล็อคเพดานบินสูงสุด)
     if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        -- ให้ลอยสูงกว่าจุดที่ยืนอยู่หรือเป้าหมาย ประมาณ 80 สตัด (เพื่อข้ามบ้าน/โขดหิน แต่ไม่ชนเพดานเกาะ)
+        -- ให้ลอยสูงกว่าจุดที่ยืนอยู่หรือเป้าหมาย 80 สตัด (เพื่อข้ามสิ่งกีดขวาง)
         local safeHeight = math.max(myPos.Y, targetPos.Y) + 80 
+        
+        -- 🔒 [จุดสำคัญ] ล็อคเพดานบิน! ถ้าความสูงเกิน -1753 ให้บังคับเพดานบินอยู่ที่ -1753
+        if safeHeight > -1753 then
+            safeHeight = -1753
+        end
 
         if horizontalDist > 60 then
             -- ถ้าอยู่ไกลเป้าหมายในแนวราบ
-            if myPos.Y < safeHeight - 20 then
+            if myPos.Y < safeHeight - 15 then
                 -- 1. ลอยตัวขึ้นตรงๆ ก่อน
                 finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
             else
-                -- 2. บินแนวราบข้ามสิ่งกีดขวางไปหาจุดหมาย
+                -- 2. บินแนวราบข้ามไปหาจุดหมาย (บินใต้เพดานถ้ำแน่นอน)
                 finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
             end
         else
