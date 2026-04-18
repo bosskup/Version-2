@@ -298,7 +298,7 @@ function QuestTracker.UpdateHasActiveQuest()
     end
 end
 -- ============================================
--- FLY SYSTEM + DYNAMIC SAND RADAR
+-- FLY SYSTEM + DYNAMIC SAND RADAR (FIXED V2)
 -- ============================================
 local FlySystem = {}
 local function getOrCreateBV(hrp)
@@ -328,29 +328,35 @@ function FlySystem.Remove(hrp)
     if hrp then hrp.Velocity = Vector3.zero hrp.AssemblyLinearVelocity = Vector3.zero end
 end
 
--- 🔍 ระบบเรดาร์หา Sand และดึงค่า Y มาคำนวณ (สแกนวิละ 1 ครั้ง)
+-- 🔍 เรดาร์แบบใหม่ (เจาะจงโฟลเดอร์ Env เพื่อทะลุกล่องอีเวนต์ล่องหน)
 local lastScanTime = 0
 local cachedIsOcean = false
 local cachedSandY = 0
 
 local function IsOverOceanOptimized(currentPos)
-    if tick() - lastScanTime >= 1 then
+    if tick() - lastScanTime >= 0.5 then -- อัปเดตไวขึ้นเป็นทุกๆ 0.5 วิ
         lastScanTime = tick()
         local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        local LP = game:GetService("Players").LocalPlayer
-        params.FilterDescendantsInstances = {LP.Character}
-        params.IgnoreWater = true -- ทะลุน้ำลงไปหาทรายเลย
+        
+        -- ใช้ Include เพื่อให้เลเซอร์สนใจแค่แมพ (ไม่ชนตัวผู้เล่น, สกิล, หรือโมเดลขยะ)
+        params.FilterType = Enum.RaycastFilterType.Include
+        local envFolder = workspace:FindFirstChild("Env") or workspace:FindFirstChild("WaterStuff")
+        if envFolder then
+            params.FilterDescendantsInstances = {envFolder}
+        else
+            -- เผื่อหาโฟลเดอร์ไม่เจอ
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            local LP = game:GetService("Players").LocalPlayer
+            params.FilterDescendantsInstances = {LP.Character}
+        end
+        params.IgnoreWater = true 
 
-        -- ยิงเลเซอร์ลงไป 5000 สตัด เพื่อให้ชัวร์ว่าเจอก้นทะเลแน่ๆ
         local result = workspace:Raycast(currentPos, Vector3.new(0, -5000, 0), params)
         
-        -- เช็คว่าเจอวัตถุชื่อ "Sand" และอยู่ใน "WaterStuff" หรือไม่ (กันไปโดนทรายบนบก)
-        if result and result.Instance and result.Instance.Name == "Sand" then
-            local fullName = result.Instance:GetFullName()
-            if fullName:find("WaterStuff") or fullName:find("Env") then
+        if result and result.Instance then
+            local name = result.Instance.Name
+            if name == "Sand" or name == "WaterBottom" then
                 cachedIsOcean = true
-                -- เซฟความสูงของพื้นทราย (Y) เก็บไว้
                 cachedSandY = result.Position.Y
             else
                 cachedIsOcean = false
@@ -362,7 +368,7 @@ local function IsOverOceanOptimized(currentPos)
     return cachedIsOcean, cachedSandY
 end
 
--- ⚠️ ฟังก์ชันบินหลัก (อัปเดต: บังคับเปิดเรดาร์น้ำเสมอ)
+-- ⚠️ ฟังก์ชันบินหลัก (ดิ่งหัวแรงขึ้น + มีระบบระดับสำรอง)
 function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRadar)
     if not targetPos or not hrp then return false end
     stopRadius = stopRadius or Config.STOP_RADIUS
@@ -381,28 +387,30 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, useWaterRad
     local myPos = hrp.Position
     local dir = (targetPos - myPos).Unit
 
-    -- 🌊 ระบบบินเหนือ Sand + 102 (แก้ให้ทำงานตลอดเวลา หากไม่ถูกสั่งปิด)
     if useWaterRadar ~= false then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-        
         local isOcean, sandY = IsOverOceanOptimized(myPos)
         
-        -- ถ้าระยะห่างเกิน 50 และเช็คเจอทราย WaterStuff
-        if horizontalDist > 50 and isOcean then
-            -- ล็อคความสูงเป้าหมายให้อยู่เหนือทรายพอดี 102 สตัด
-            local targetHeight = sandY + 102
-            local tempTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
+        -- ถ้าระยะห่างเป้าหมายไกลเกิน 50 สตัด ให้เริ่มทำงาน
+        if horizontalDist > 50 then
             
-            -- ปรับทิศทางการบินไปที่จุดหมายชั่วคราว
+            -- [ระบบสำรอง] ต่อให้หาทรายไม่เจอ ก็จะอ้างอิงความสูงเป้าหมายแทน ป้องกันการบินขึ้นอวกาศ
+            local targetHeight = targetPos.Y + 102 
+            
+            if isOcean then
+                targetHeight = sandY + 102 -- ถ้าเจอทราย ให้ใช้ทรายเป็นเกณฑ์
+            end
+
+            local tempTarget = Vector3.new(targetPos.X, targetHeight, targetPos.Z)
             dir = (tempTarget - myPos).Unit
             
-            -- ⬇️ 1. ถ้าตัวละครบินสูงเกินไป (เกิน 50 สตัดจากผิวน้ำ) บังคับกดหัวลง
+            -- ⬇️ 1. บังคับดิ่งหัวลงรุนแรง หากบินสูงเกินเป้าหมาย 15 สตัด
             if myPos.Y > targetHeight + 15 then
-                 dir = Vector3.new(dir.X, -2, dir.Z).Unit
+                 dir = Vector3.new(dir.X, -3, dir.Z).Unit 
                  
-            -- ⬆️ 2. [เพิ่มใหม่] ถ้าตัวละครร่วงต่ำกว่าผิวน้ำ (ฉุกเฉิน) บังคับเชิดหัวขึ้นฟ้า!
-            elseif myPos.Y < targetHeight - 2 then
-                 dir = Vector3.new(dir.X, 1, dir.Z).Unit -- พุ่งขึ้นตรงๆ
+            -- ⬆️ 2. บังคับเชิดหัวขึ้นฟ้า หากร่วงต่ำกว่าระดับ
+            elseif myPos.Y < targetHeight - 5 then
+                 dir = Vector3.new(dir.X, 1.5, dir.Z).Unit
             end
         end
     end
@@ -423,7 +431,6 @@ function FlySystem.AdjustToMob(hrp, mob, headOffset)
     local targetPos = mob.HumanoidRootPart.Position + Vector3.new(0, headOffset or Config.HEAD_OFFSET, 0)
     return FlySystem.AdjustToTarget(hrp, targetPos, 2, Config.FLY_SPEED)
 end
-
 -- ============================================
 -- PULL BACK SYSTEM
 -- ============================================
