@@ -272,7 +272,7 @@ function QuestTracker.UpdateHasActiveQuest()
 end
 
 -- ============================================
--- 🚀 TWEEN FLY SYSTEM + HIGH SKY (บินทะยานฟ้า)
+-- 🚀 HYBRID FLY SYSTEM (Tween เดินทางไกล / BodyVelocity ตอนฟาร์ม)
 -- ============================================
 local FlySystem = {}
 local activeTween = nil
@@ -289,12 +289,18 @@ function FlySystem.Stop(hrp)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         local bv = hrp:FindFirstChild("FlyBV")
-        if bv then bv:Destroy() end
+        if bv then 
+            bv.Velocity = Vector3.zero -- สั่งให้หยุด แต่พยุงตัวไว้กลางอากาศ
+        end
     end
 end
 
 function FlySystem.Remove(hrp)
     FlySystem.Stop(hrp)
+    if hrp then
+        local bv = hrp:FindFirstChild("FlyBV")
+        if bv then bv:Destroy() end
+    end
 end
 
 function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
@@ -314,59 +320,73 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        -- ให้ลอยสูงกว่าจุดที่ยืนอยู่หรือเป้าหมาย 80 สตัด (เพื่อข้ามสิ่งกีดขวาง)
         local safeHeight = math.max(myPos.Y, targetPos.Y) + 80 
-        
-        -- 🔒 [จุดสำคัญ] ล็อคเพดานบิน! ถ้าความสูงเกิน -1753 ให้บังคับเพดานบินอยู่ที่ -1753
-        if safeHeight > -1753 then
-            safeHeight = -1753
-        end
+        if safeHeight > -1753 then safeHeight = -1753 end
 
         if horizontalDist > 60 then
-            -- ถ้าอยู่ไกลเป้าหมายในแนวราบ
             if myPos.Y < safeHeight - 15 then
-                -- 1. ลอยตัวขึ้นตรงๆ ก่อน
                 finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
             else
-                -- 2. บินแนวราบข้ามไปหาจุดหมาย (บินใต้เพดานถ้ำแน่นอน)
                 finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
             end
         else
-            -- 3. ถ้าใกล้จุดหมายแนวราบแล้ว ให้ดิ่งลงมาหาเป้าหมาย
             finalTarget = targetPos
         end
     end
 
-    -- 🎯 อัปเดต Tween เมื่อเป้าหมายเปลี่ยนไปเกิน 5 สตัด หรือ Tween เก่าหยุดไปแล้ว
-    if not currentTargetPos or (currentTargetPos - finalTarget).Magnitude > 5 or not activeTween or activeTween.PlaybackState ~= Enum.PlaybackState.Playing then
-        if activeTween then activeTween:Cancel() end
-        currentTargetPos = finalTarget
+    local distToFinal = (finalTarget - hrp.Position).Magnitude
+
+    -- สร้าง BodyVelocity ไว้พยุงตัว
+    local bv = hrp:FindFirstChild("FlyBV")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "FlyBV"
+        bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+        bv.Velocity = Vector3.zero
+        bv.Parent = hrp
+    end
+
+    -- 🔄 ระบบแยกการทำงาน (Hybrid)
+    if distToFinal > 30 then
+        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อความนุ่มนวลทะลุกำแพง
+        bv.Velocity = Vector3.zero -- ปิดแรงดันของ BV ตอนใช้ Tween
+        
+        if not currentTargetPos or (currentTargetPos - finalTarget).Magnitude > 5 or not activeTween or activeTween.PlaybackState ~= Enum.PlaybackState.Playing then
+            if activeTween then activeTween:Cancel() end
+            currentTargetPos = finalTarget
+            
+            local currentSpeed = speed or Config.FLY_SPEED
+            local timeToReach = distToFinal / currentSpeed
+            local tInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
+
+            local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
+            local lookRot = CFrame.new(hrp.Position)
+            if (lookPos - hrp.Position).Magnitude > 0.1 then
+                lookRot = CFrame.lookAt(hrp.Position, lookPos).Rotation
+            else
+                lookRot = CFrame.lookAt(hrp.Position, finalTarget).Rotation
+            end
+
+            activeTween = TweenService:Create(hrp, tInfo, {CFrame = CFrame.new(finalTarget) * lookRot})
+            activeTween:Play()
+        end
+    else
+        -- ⚔️ [ระยะใกล้/ฟาร์มมอน] ปิด Tween ใช้ BODYVELOCITY แทนเพื่อความนิ่ง
+        if activeTween then 
+            activeTween:Cancel() 
+            activeTween = nil
+            currentTargetPos = nil
+        end
         
         local currentSpeed = speed or Config.FLY_SPEED
-        local timeToReach = (finalTarget - hrp.Position).Magnitude / currentSpeed
-        local tInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
+        local dir = (finalTarget - hrp.Position).Unit
+        bv.Velocity = dir * currentSpeed
         
-        -- ใช้ BodyVelocity เพื่อพยุงตัวไม่ให้ตกระหว่าง Tween
-        local bv = hrp:FindFirstChild("FlyBV")
-        if not bv then
-            bv = Instance.new("BodyVelocity")
-            bv.Name = "FlyBV"
-            bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
-            bv.Velocity = Vector3.zero
-            bv.Parent = hrp
-        end
-
-        -- หันหน้าไปหาเป้าหมาย (กันหน้ามุดพื้น/เงยฟ้าเกินไป)
+        -- หันหน้าเข้าหามอนสเตอร์
         local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
-        local lookRot = CFrame.new(hrp.Position)
         if (lookPos - hrp.Position).Magnitude > 0.1 then
-            lookRot = CFrame.lookAt(hrp.Position, lookPos).Rotation
-        else
-            lookRot = CFrame.lookAt(hrp.Position, finalTarget).Rotation
+            hrp.CFrame = CFrame.new(hrp.Position, lookPos)
         end
-
-        activeTween = TweenService:Create(hrp, tInfo, {CFrame = CFrame.new(finalTarget) * lookRot})
-        activeTween:Play()
     end
 
     return false
@@ -376,6 +396,11 @@ function FlySystem.AdjustToMob(hrp, mob, headOffset)
     if not mob or not mob:FindFirstChild("HumanoidRootPart") then return false end
     local targetPos = mob.HumanoidRootPart.Position + Vector3.new(0, headOffset or Config.HEAD_OFFSET, 0)
     return FlySystem.AdjustToTarget(hrp, targetPos, 2, Config.FLY_SPEED)
+end
+
+function FlySystem.IsFlyingFar(hrp)
+    if not currentTargetPos or not hrp then return false end
+    return (hrp.Position - currentTargetPos).Magnitude > 30
 end
 
 -- ============================================
@@ -855,12 +880,15 @@ local function AutoEquip()
     if tool then tool.Parent = char end
 end
 
--- 🦅 GEPPO LOOP (แทน Dash เดิม)
+-- 🦅 GEPPO LOOP (ใช้ตอนเดินทางเท่านั้น)
 task.spawn(function()
     while task.wait(0.5) do
         if _G.SystemEnabled and LP.Character then
             local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
+            
+            -- จะเรียกใช้ Geppo ก็ต่อเมื่อเป้าหมายอยู่ไกลกว่า 20 สตัด (กำลังบินเดินทาง)
+            -- พอถึงระยะตีมอน (ระยะ < 20) มันจะหยุด Geppo ทำให้ตัวละครลอยนิ่งสนิท!
+            if hrp and FlySystem.IsFlyingFar(hrp) then
                 pcall(function() 
                     SkillRemote:InvokeServer(unpack({
                         "Sky Walk2",
