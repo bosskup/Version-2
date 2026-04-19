@@ -334,8 +334,8 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         end
         
         -- ล็อคเพดานบินสูงสุดไว้ที่ 2500 กันทะลุโลก
-        if skyHeight > 2500 then
-            skyHeight = 2500
+        if skyHeight > 1000 then
+            skyHeight = 1000
         end
 
         if horizontalDist > 60 then
