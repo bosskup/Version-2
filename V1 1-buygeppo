@@ -1053,7 +1053,7 @@ task.spawn(function()
 
                     -- บินไปหา NPC Yi
                     while _G.SystemEnabled and hum.Health > 0 and (hrp.Position - YI_POS).Magnitude > 5 do
-                        FlySystem.AdjustToTarget(hrp, YI_POS, 3, Config.FLY_SPEED)
+                        FlySystem.AdjustToTarget(hrp, YI_POS, 3, Config.FLY_SPEED, true)
                         task.wait()
                     end
                     
