@@ -328,9 +328,9 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         -- คำนวณความสูงและป้องกันไม่ให้ทะลุอวกาศ (ล็อคเพดานไว้ที่ 2500)
         local skyHeight = math.max(myPos.Y, targetPos.Y) + 60 
         
-        -- ถ้าคำนวณแล้วสูงเกิน 2500 ให้บังคับลดลงมาเหลือ 2500
-        if skyHeight > 2500 then
-            skyHeight = 2500
+        -- ถ้าคำนวณแล้วสูงเกิน 5500 ให้บังคับลดลงมาเหลือ 4500
+        if skyHeight > 5500 then
+            skyHeight = 4500
         end
 
         if horizontalDist > 60 then
@@ -356,7 +356,7 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         bv.Parent = hrp
     end
 
-    -- 🔄 ระบบแยกการทำงาน (Hybrid)
+-- 🔄 ระบบแยกการทำงาน (Hybrid)
     if distToFinal > 30 then
         -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อความนุ่มนวลทะลุกำแพง
         bv.Velocity = Vector3.zero 
@@ -367,6 +367,14 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             
             local currentSpeed = speed or Config.FLY_SPEED
             local timeToReach = distToFinal / currentSpeed
+            
+            -- 🛡️ จำกัดความเร็วแกน Y ไม่ให้เกิน 45 เพื่อกันเซิร์ฟเวอร์ตรวจจับ
+            local yDistance = math.abs(finalTarget.Y - hrp.Position.Y)
+            local maxYClimbSpeed = 45 
+            if timeToReach > 0 and (yDistance / timeToReach) > maxYClimbSpeed then
+                timeToReach = yDistance / maxYClimbSpeed -- ยืดเวลา Tween ออกไปถ้าแกน Y พุ่งเร็วไป
+            end
+
             local tInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
 
             local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
@@ -390,7 +398,17 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         
         local currentSpeed = speed or Config.FLY_SPEED
         local dir = (finalTarget - hrp.Position).Unit
-        bv.Velocity = dir * currentSpeed
+        local targetVel = dir * currentSpeed
+        
+        -- 🛡️ จำกัดความเร็วแกน Y ของ BodyVelocity ให้อยู่ที่ 45
+        local maxYClimbSpeed = 45
+        if targetVel.Y > maxYClimbSpeed then
+            targetVel = Vector3.new(targetVel.X, maxYClimbSpeed, targetVel.Z)
+        elseif targetVel.Y < -maxYClimbSpeed then
+            targetVel = Vector3.new(targetVel.X, -maxYClimbSpeed, targetVel.Z)
+        end
+        
+        bv.Velocity = targetVel
         
         -- หันหน้าเข้าหามอนสเตอร์
         local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
