@@ -321,10 +321,17 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- ☁️ ระบบบินสำหรับเกาะปกติ (ลอยขึ้นฟ้าสูงๆ 150 สตัด เพื่อข้ามภูเขา/ต้นไม้)
+-- ☁️ ระบบบินสำหรับเกาะปกติ (ลอยขึ้นฟ้าเพื่อข้ามภูเขา/ต้นไม้)
     if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-        local skyHeight = math.max(myPos.Y, targetPos.Y) + 150 
+      
+        -- คำนวณความสูงและป้องกันไม่ให้ทะลุอวกาศ (ล็อคเพดานไว้ที่ 2500)
+        local skyHeight = math.max(myPos.Y, targetPos.Y) + 60 
+        
+        -- ถ้าคำนวณแล้วสูงเกิน 2500 ให้บังคับลดลงมาเหลือ 2500
+        if skyHeight > 2500 then
+            skyHeight = 2500
+        end
 
         if horizontalDist > 60 then
             if myPos.Y < skyHeight - 15 then
