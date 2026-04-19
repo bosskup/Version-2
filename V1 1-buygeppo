@@ -91,7 +91,7 @@ end)
 -- GLOBAL VARIABLES & STATES
 -- ============================================
 _G.SystemEnabled = true
-_G.LowCPUMode = true 
+_G.LowCPUMode = false 
 _G.FPSCap = 10   
 _G.IsBuyingGeppo = false -- 🟢 ตัวแปรใหม่สำหรับล็อคระบบเพื่อไปซื้อ Geppo
 
