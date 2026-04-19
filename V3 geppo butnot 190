@@ -325,12 +325,17 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if goHigh then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
       
-        -- คำนวณความสูงและป้องกันไม่ให้ทะลุอวกาศ (ล็อคเพดานไว้ที่ 2500)
-        local skyHeight = math.max(myPos.Y, targetPos.Y) + 60 
+        -- ล็อคความสูงเป้าหมายให้คงที่ (เช่น สูงกว่าจุดรับเควส 150 สตัด)
+        local skyHeight = targetPos.Y + 150 
         
-        -- ถ้าคำนวณแล้วสูงเกิน 5500 ให้บังคับลดลงมาเหลือ 4500
-        if skyHeight > 5500 then
-            skyHeight = 4500
+        -- 🛡️ ถ้าตัวละครอยู่สูงกว่าความสูงที่ตั้งไว้ ให้รักษาระดับเดิมไว้ (ห้ามบวกเพิ่มเด็ดขาด กันบัคบินขึ้นไม่หยุด)
+        if myPos.Y > skyHeight then
+            skyHeight = myPos.Y
+        end
+        
+        -- ล็อคเพดานบินสูงสุดไว้ที่ 2500 กันทะลุโลก
+        if skyHeight > 2500 then
+            skyHeight = 2500
         end
 
         if horizontalDist > 60 then
