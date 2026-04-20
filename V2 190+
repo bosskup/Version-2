@@ -138,7 +138,7 @@ end)
 local Config = {}
 Config.FLY_SPEED = 70 
 Config.HEAD_OFFSET = 7
-Config.KILL_OFFSET = 7
+Config.KILL_OFFSET = 9
 Config.HIT_CHECK_DELAY = 0.15
 Config.KILL_STUCK_TIMEOUT = 32
 Config.STOP_RADIUS = 3.5
@@ -272,7 +272,7 @@ function QuestTracker.UpdateHasActiveQuest()
 end
 
 -- ============================================
--- 🚀 HYBRID FLY SYSTEM (Tween เดินทางไกล / BodyVelocity ตอนฟาร์ม)
+-- 🚀 HYBRID FLY SYSTEM (V8 INTEGRATED + UP/DOWN ANCHOR)
 -- ============================================
 local FlySystem = {}
 local activeTween = nil
@@ -285,13 +285,12 @@ function FlySystem.Stop(hrp)
         currentTargetPos = nil
     end
     if hrp then
+        hrp.Anchored = false -- ปลดล็อคตัวเสมอเมื่อหยุดบิน
         hrp.Velocity = Vector3.zero
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         local bv = hrp:FindFirstChild("FlyBV")
-        if bv then 
-            bv.Velocity = Vector3.zero -- สั่งให้หยุด แต่พยุงตัวไว้กลางอากาศ
-        end
+        if bv then bv.Velocity = Vector3.zero end
     end
 end
 
@@ -316,27 +315,30 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- 🌊 ระบบบินสำหรับเกาะใต้ดิน (ล็อคเพดานบินสูงสุด)
-    if goHigh then
+    -- 🌊 ระบบบิน 3-Phase แบบ Bypass V8
+    if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        local safeHeight = math.max(myPos.Y, targetPos.Y) + 80 
-        if safeHeight > -1753 then safeHeight = -1753 end
+        -- คำนวณเพดานบิน
+        local safeHeight = myPos.Y + 500 
+        if myPos.Y < -1000 and targetPos.Y < -1000 then 
+            safeHeight = -1750 
+        end
 
         if horizontalDist > 60 then
             if myPos.Y < safeHeight - 15 then
-                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
+                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z) -- Phase 1: บินขึ้นฟ้า
             else
-                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
+                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z) -- Phase 2: ข้ามแมพ
             end
         else
-            finalTarget = targetPos
+            finalTarget = targetPos -- Phase 3: ดิ่งลงดิน
         end
     end
 
     local distToFinal = (finalTarget - hrp.Position).Magnitude
 
-    -- สร้าง BodyVelocity ไว้พยุงตัว
+    -- เตรียม BodyVelocity ไว้พยุงตัว
     local bv = hrp:FindFirstChild("FlyBV")
     if not bv then
         bv = Instance.new("BodyVelocity")
@@ -346,11 +348,22 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         bv.Parent = hrp
     end
 
-    -- 🔄 ระบบแยกการทำงาน (Hybrid)
     if distToFinal > 30 then
-        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อความนุ่มนวลทะลุกำแพง
-        bv.Velocity = Vector3.zero -- ปิดแรงดันของ BV ตอนใช้ Tween
+        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อทะลุกำแพง
+        bv.Velocity = Vector3.zero 
         
+        -- ⚓ [ระบบ Anchor ตอนบินขึ้น/ลง แบบไดนามิก]
+        local yDiff = math.abs(finalTarget.Y - hrp.Position.Y)
+        local xzDiff = (Vector3.new(finalTarget.X, 0, finalTarget.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
+        
+        if yDiff > xzDiff and distToFinal > 30 then 
+            -- บินในแนวตั้งมากกว่าแนวนอน = ล็อคตัวแข็ง
+            hrp.Anchored = true
+        else
+            -- บินข้ามแมพ = ปลดล็อคตัว
+            hrp.Anchored = false
+        end
+
         if not currentTargetPos or (currentTargetPos - finalTarget).Magnitude > 5 or not activeTween or activeTween.PlaybackState ~= Enum.PlaybackState.Playing then
             if activeTween then activeTween:Cancel() end
             currentTargetPos = finalTarget
@@ -371,18 +384,19 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             activeTween:Play()
         end
     else
-        -- ⚔️ [ระยะใกล้/ฟาร์มมอน] ปิด Tween ใช้ BODYVELOCITY แทนเพื่อความนิ่ง
+        -- ⚔️ [ระยะใกล้/ฟาร์ม] ปิด Tween ใช้ BV + ปลดล็อคตัวเสมอ
         if activeTween then 
             activeTween:Cancel() 
             activeTween = nil
             currentTargetPos = nil
         end
         
+        hrp.Anchored = false -- ปลดล็อคตอนเข้าตีมอน
+        
         local currentSpeed = speed or Config.FLY_SPEED
         local dir = (finalTarget - hrp.Position).Unit
         bv.Velocity = dir * currentSpeed
         
-        -- หันหน้าเข้าหามอนสเตอร์
         local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
         if (lookPos - hrp.Position).Magnitude > 0.1 then
             hrp.CFrame = CFrame.new(hrp.Position, lookPos)
