@@ -1,3 +1,24 @@
+-- ==========================================
+-- 🛡️ ระบบป้องกันโดนแบนตอนเข้าเกม (Safe Spawn Injection)
+-- ==========================================
+print("[System] ⏳ กำลังรอให้ตัวเกมโหลดเสร็จสมบูรณ์...")
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Char = LP.Character or LP.CharacterAdded:Wait()
+print("[System] ⏳ กำลังรอให้ร่างกายตัวละครประกอบเสร็จ...")
+
+local HRP = Char:WaitForChild("HumanoidRootPart", 9e9)
+local Hum = Char:WaitForChild("Humanoid", 9e9)
+
+repeat task.wait(0.5) until Hum.Health > 0
+
+print("[System] 🛡️ ตัวละครเกิดแล้ว! กำลังเข้าโหมดพรางตัว แกล้งยืนนิ่ง 10 วินาที...")
+task.wait(10) 
+
+print("[System] ✅ ทะลุระบบป้องกันสำเร็จ! เริ่มรันสคริปต์ฟาร์มได้เลย!")
+
+
+
 -- ============================================
 -- 🚀 AUTO SET SPAWN & GO TO DUNGEON (IMPEL DOWN)
 -- ============================================
