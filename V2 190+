@@ -115,7 +115,7 @@ task.spawn(SetupAutoRejoin)
 -- GLOBAL VARIABLES & STATES
 -- ============================================
 _G.SystemEnabled = true
-_G.LowCPUMode = false 
+_G.LowCPUMode = true 
 _G.FPSCap = 10   
 
 if setfpscap then
