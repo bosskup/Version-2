@@ -1,32 +1,12 @@
--- ==========================================
--- 🛡️ ระบบป้องกันโดนแบนตอนเข้าเกม (Safe Spawn Injection)
--- ==========================================
-print("[System] ⏳ กำลังรอให้ตัวเกมโหลดเสร็จสมบูรณ์...")
-if not game:IsLoaded() then game.Loaded:Wait() end
-
-local Char = LP.Character or LP.CharacterAdded:Wait()
-print("[System] ⏳ กำลังรอให้ร่างกายตัวละครประกอบเสร็จ...")
-
-local HRP = Char:WaitForChild("HumanoidRootPart", 9e9)
-local Hum = Char:WaitForChild("Humanoid", 9e9)
-
-repeat task.wait(0.5) until Hum.Health > 0
-
-print("[System] 🛡️ ตัวละครเกิดแล้ว! กำลังเข้าโหมดพรางตัว แกล้งยืนนิ่ง 10 วินาที...")
-task.wait(10) 
-
-print("[System] ✅ ทะลุระบบป้องกันสำเร็จ! เริ่มรันสคริปต์ฟาร์มได้เลย!")
-
-
-
 -- ============================================
--- 🚀 AUTO SET SPAWN & GO TO DUNGEON (IMPEL DOWN)
+-- 🏆 MASTER SCRIPT: AUTO IMPEL DOWN (SET SPAWN + DUNGEON SWEEP)
 -- ============================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LP = Players.LocalPlayer
 
 local Events = ReplicatedStorage:WaitForChild("Events")
@@ -34,19 +14,18 @@ local QuestRemote = Events:WaitForChild("Quest")
 local SetSpawnRemote = Events:WaitForChild("SetSpawn")
 local SkillRemote = Events:WaitForChild("Skill")
 
--- ตั้งค่าพื้นฐานสำหรับระบบบิน
+-- ⚙️ ตั้งค่าพื้นฐาน
 local Config = {
     FLY_SPEED = 70,
     STOP_RADIUS = 3.5,
     HEAD_OFFSET = 7
 }
 
--- จุดเป้าหมาย
 local IMPEL_SPAWN_POINT = Vector3.new(5937.7, 6.0, -9470.0)
 local IMPEL_DUNGEON_POINT = Vector3.new(5883.0, 12.3, -10219.5)
 
 -- ============================================
--- 🦅 ระบบ NOCLIP & GEPPO (ป้องกันการบินติดขัด / โดนดึงกลับ)
+-- 🦅 ระบบ NOCLIP & GEPPO (ป้องกันการติดขัด)
 -- ============================================
 local noclipConnection = RunService.Stepped:Connect(function()
     local char = LP.Character
@@ -76,11 +55,12 @@ task.spawn(function()
 end)
 
 -- ============================================
--- 🚀 HYBRID FLY SYSTEM (V8 INTEGRATED + UP/DOWN ANCHOR)
+-- 🚀 HYBRID FLY SYSTEM (ANTI-TP CHECK + HEIGHT FIX)
 -- ============================================
 local FlySystem = {}
 local activeTween = nil
 local currentTargetPos = nil
+FlySystem.lastHrpPos = nil 
 
 function FlySystem.Stop(hrp)
     if activeTween then
@@ -88,21 +68,15 @@ function FlySystem.Stop(hrp)
         activeTween = nil
         currentTargetPos = nil
     end
+    FlySystem.lastHrpPos = nil
+    
     if hrp then
-        hrp.Anchored = false -- ปลดล็อคตัวเสมอเมื่อหยุดบิน
+        hrp.Anchored = false 
         hrp.Velocity = Vector3.zero
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         local bv = hrp:FindFirstChild("FlyBV")
         if bv then bv.Velocity = Vector3.zero end
-    end
-end
-
-function FlySystem.Remove(hrp)
-    FlySystem.Stop(hrp)
-    if hrp then
-        local bv = hrp:FindFirstChild("FlyBV")
-        if bv then bv:Destroy() end
     end
 end
 
@@ -115,34 +89,44 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
         FlySystem.Stop(hrp)
         return true
     end
+
+    -- 🛡️ Anti-Rubberband (ตรวจจับการโดนเซิร์ฟเวอร์ดึงกลับ)
+    if FlySystem.lastHrpPos and (hrp.Position - FlySystem.lastHrpPos).Magnitude > 50 then
+        if activeTween then
+            activeTween:Cancel()
+            activeTween = nil
+            currentTargetPos = nil
+            hrp.Anchored = false 
+        end
+    end
+    FlySystem.lastHrpPos = hrp.Position 
     
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- 🌊 ระบบบิน 3-Phase แบบ Bypass V8
     if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        -- คำนวณเพดานบิน
-        local safeHeight = myPos.Y + 500 
-        if myPos.Y < -1000 and targetPos.Y < -1000 then 
+        local safeHeight = targetPos.Y + 600 
+        if targetPos.Y < -1000 and myPos.Y < -1000 then 
             safeHeight = -1750 
+        elseif targetPos.Y < -1000 and myPos.Y >= -1000 then
+            safeHeight = 600
         end
 
         if horizontalDist > 60 then
             if myPos.Y < safeHeight - 15 then
-                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z) -- Phase 1: บินขึ้นฟ้า
+                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
             else
-                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z) -- Phase 2: ข้ามแมพ
+                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
             end
         else
-            finalTarget = targetPos -- Phase 3: ดิ่งลงดิน
+            finalTarget = targetPos
         end
     end
 
     local distToFinal = (finalTarget - hrp.Position).Magnitude
 
-    -- เตรียม BodyVelocity ไว้พยุงตัว
     local bv = hrp:FindFirstChild("FlyBV")
     if not bv then
         bv = Instance.new("BodyVelocity")
@@ -153,18 +137,14 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     end
 
     if distToFinal > 30 then
-        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อทะลุกำแพง
         bv.Velocity = Vector3.zero 
         
-        -- ⚓ [ระบบ Anchor ตอนบินขึ้น/ลง แบบไดนามิก]
         local yDiff = math.abs(finalTarget.Y - hrp.Position.Y)
         local xzDiff = (Vector3.new(finalTarget.X, 0, finalTarget.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
         
         if yDiff > xzDiff and distToFinal > 30 then 
-            -- บินในแนวตั้งมากกว่าแนวนอน = ล็อคตัวแข็ง
             hrp.Anchored = true
         else
-            -- บินข้ามแมพ = ปลดล็อคตัว
             hrp.Anchored = false
         end
 
@@ -188,14 +168,13 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             activeTween:Play()
         end
     else
-        -- ⚔️ [ระยะใกล้/ฟาร์ม] ปิด Tween ใช้ BV + ปลดล็อคตัวเสมอ
         if activeTween then 
             activeTween:Cancel() 
             activeTween = nil
             currentTargetPos = nil
         end
         
-        hrp.Anchored = false -- ปลดล็อคตอนเข้าตีมอน
+        hrp.Anchored = false
         
         local currentSpeed = speed or Config.FLY_SPEED
         local dir = (finalTarget - hrp.Position).Unit
@@ -210,75 +189,162 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     return false
 end
 
-function FlySystem.AdjustToMob(hrp, mob, headOffset)
-    if not mob or not mob:FindFirstChild("HumanoidRootPart") then return false end
-    local targetPos = mob.HumanoidRootPart.Position + Vector3.new(0, headOffset or Config.HEAD_OFFSET, 0)
-    return FlySystem.AdjustToTarget(hrp, targetPos, 2, Config.FLY_SPEED)
+-- ============================================
+-- 📡 ระบบสแกนหาและกด ProximityPrompt (ระยะ 500)
+-- ============================================
+local function ScanAndPressPrompt(targetModel, maxSearchDistance)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    local closestPrompt = nil
+    local shortestDist = maxSearchDistance or 500
+
+    for _, obj in pairs(targetModel:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            local parentPart = obj.Parent
+            if parentPart and parentPart:IsA("BasePart") then
+                local dist = (parentPart.Position - hrp.Position).Magnitude
+                
+                if dist <= shortestDist then
+                    closestPrompt = obj
+                    shortestDist = dist
+                end
+            end
+        end
+    end
+
+    if closestPrompt then
+        local key = closestPrompt.KeyboardKeyCode
+        local holdTime = closestPrompt.HoldDuration
+        local targetPos = closestPrompt.Parent.Position
+        
+        print("[System] 🕹️ เตรียมกดปุ่ม: " .. tostring(key.Name) .. " | ระยะ: " .. math.floor(shortestDist) .. " Studs")
+
+        local lookDir = (targetPos - hrp.Position).Unit
+        hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + Vector3.new(lookDir.X, 0, lookDir.Z))
+        task.wait(0.3) 
+
+        VirtualInputManager:SendKeyEvent(true, key, false, game)
+        task.wait(holdTime + 0.1)
+        VirtualInputManager:SendKeyEvent(false, key, false, game)
+        
+        return true
+    else
+        return false
+    end
 end
 
-function FlySystem.IsFlyingFar(hrp)
-    if not currentTargetPos or not hrp then return false end
-    return (hrp.Position - currentTargetPos).Magnitude > 30
-end
-
-
 -- ============================================
--- 📍 MAIN LOGIC : SET SPAWN -> GO TO DUNGEON
+-- 📍 MAIN MASTER LOGIC
 -- ============================================
-
-local function DoSetSpawnAndGoDungeon()
+local function RunMasterDungeonScript()
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hrp = char:WaitForChild("HumanoidRootPart", 9e9)
     local hum = char:WaitForChild("Humanoid", 9e9)
 
-    -- รอจนกว่าตัวละครจะมีชีวิต (กันบัคเลือด 0)
     repeat task.wait(0.5) until hum.Health > 0
     task.wait(1)
 
-    print("[System] 📍 กำลังเดินทางไปเซ็ตจุดเกิดที่ Impel Down...")
-
-    -- 1️⃣ บินไปจุด Set Spawn
+    -- ==================================
+    -- 1️⃣ บินไป Set Spawn
+    -- ==================================
+    print("[System] 📍 [1/4] เดินทางไปจุดเกิด Impel Down...")
     while LP.Character == char and hrp and hum.Health > 0 do
-        local isArrived = FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, Config.FLY_SPEED, true)
-        if isArrived then break end
+        if FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, Config.FLY_SPEED, true) then break end
         task.wait()
     end
 
     if hum.Health <= 0 then return end
     FlySystem.Stop(hrp)
-    print("[System] 🎯 ถึงจุดเซ็ตเกิดแล้ว! กำลังคุยกับ NPC...")
-    task.wait(7)
+    
+    print("[System] ⏳ ถึงจุดเซ็ตเกิด! รอ 5 วินาทีเพื่อให้ Map & NPC โหลด...")
+    task.wait(5)
 
-    -- 2️⃣ ทำการคุยกับ NPC เพื่อเซ็ตเกิด (อ้างอิงจากระบบเดิม)
+    print("[System] 💬 ยิง Remote เซ็ตจุดเกิด...")
     pcall(function()
         QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
         task.wait(0.5)
-        for i = 1, 3 do 
-            SetSpawnRemote:FireServer() 
-            task.wait(0.3) 
-        end
+        for i = 1, 3 do SetSpawnRemote:FireServer() task.wait(0.3) end
         QuestRemote:InvokeServer(unpack({{"npcChat", false}}))
     end)
-
-    print("[System] ✅ เซ็ตจุดเกิดสำเร็จ! รอ 1 วินาทีเพื่อไปจุดต่อไป...")
+    print("[System] ✅ เซ็ตจุดเกิดสำเร็จ!")
     task.wait(1)
 
-    -- 3️⃣ บินไปหน้าดันเจี้ยน
-    print("[System] 🚪 กำลังเดินทางไปจุดลงดันเจี้ยน...")
+    -- ==================================
+    -- 2️⃣ บินไปหน้าประตูดันเจี้ยน
+    -- ==================================
+    print("[System] 🚪 [2/4] เดินทางไปจุดลงดันเจี้ยน...")
     while LP.Character == char and hrp and hum.Health > 0 do
-        local isArrived = FlySystem.AdjustToTarget(hrp, IMPEL_DUNGEON_POINT, 3, Config.FLY_SPEED, true)
-        if isArrived then break end
+        if FlySystem.AdjustToTarget(hrp, IMPEL_DUNGEON_POINT, 3, Config.FLY_SPEED, true) then break end
         task.wait()
     end
 
     FlySystem.Stop(hrp)
-    print("[System] 🏁 ถึงหน้าจุดลงดันเจี้ยนเรียบร้อยแล้ว!")
-    
-    -- ลบ Noclip ออกเพื่อให้เดินลงดันได้ปกติ
-    if noclipConnection then
-        noclipConnection:Disconnect()
+    print("[System] 🏁 ถึงหน้าจุดลงดันเจี้ยนแล้ว! รอ 5 วินาทีให้ดันเจี้ยนโหลด...")
+    task.wait(5) -- รอผู้เล่นวาร์ปเข้าดัน หรือรอแมพดันโหลด
+
+    -- ==================================
+    -- 3️⃣ ค้นหาและเก็บกุญแจ
+    -- ==================================
+    print("[System] 🔑 [3/4] เริ่มภารกิจค้นหากุญแจดันเจี้ยน...")
+    local effectsFolder = workspace:FindFirstChild("Effects")
+    if not effectsFolder then return end
+
+    local keyModel = effectsFolder:WaitForChild("Key", 15) -- รอคีย์เกิด 15 วินาที
+    local keyPart = keyModel and keyModel:FindFirstChild("Key")
+
+    if keyModel and keyPart then
+        print("[System] ✈️ เจอกุญแจ! กำลังบินไปเก็บ...")
+        while LP.Character == char and hrp and hum.Health > 0 do
+            if FlySystem.AdjustToTarget(hrp, keyPart.Position, 4, Config.FLY_SPEED, false) then break end
+            task.wait()
+        end
+        FlySystem.Stop(hrp)
+        task.wait(0.5)
+        if ScanAndPressPrompt(keyModel, 500) then print("[System] ✅ เก็บกุญแจเรียบร้อย!") end
+    else
+        print("[System] ⚠️ ไม่พบกุญแจ (ข้ามไปขั้นตอนถัดไป)")
     end
+    task.wait(1)
+
+    -- ==================================
+    -- 4️⃣ กวาดล้างหีบสมบัติทั้งหมด
+    -- ==================================
+    print("[System] 📦 [4/4] เริ่มกวาดล้างหีบสมบัติ...")
+    local chestCount = 0
+
+    for _, model in ipairs(effectsFolder:GetChildren()) do
+        if model.Name ~= "Key" then
+            local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Enabled then
+                chestCount = chestCount + 1
+                local targetPos = prompt.Parent.Position
+                
+                print("[System] 💎 บินไปเปิดหีบใบที่ " .. chestCount .. "...")
+                while LP.Character == char and hrp and hum.Health > 0 do
+                    if FlySystem.AdjustToTarget(hrp, targetPos, 4, Config.FLY_SPEED, false) then break end
+                    task.wait()
+                end
+                
+                FlySystem.Stop(hrp)
+                task.wait(0.5)
+
+                if ScanAndPressPrompt(model, 500) then print("[System] ✅ เปิดหีบใบที่ " .. chestCount .. " สำเร็จ!") end
+                task.wait(1)
+            end
+        end
+    end
+
+    if chestCount == 0 then
+        print("[System] ⚠️ สแกนไม่พบหีบสมบัติเพิ่มเติมในห้องนี้")
+    else
+        print("[System] 🎉 ภารกิจดันเจี้ยนเสร็จสิ้น! เปิดหีบไปทั้งหมด " .. chestCount .. " กล่อง!")
+    end
+
+    -- ปิด Noclip
+    if noclipConnection then noclipConnection:Disconnect() end
 end
 
--- สั่งเริ่มการทำงาน
-task.spawn(DoSetSpawnAndGoDungeon)
+-- รันสคริปต์
+task.spawn(RunMasterDungeonScript)
