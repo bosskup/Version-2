@@ -102,15 +102,10 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        -- 🛠️ แก้ไขบัคบินทะลุฟ้า: ล็อคความสูงให้อิงจากเป้าหมาย จะได้ไม่บวกขึ้นไปเรื่อยๆ
-        local safeHeight = targetPos.Y + 600 
-        
-        -- กรณีพิเศษสำหรับเกาะเงือก/เกาะใต้ดิน
-        if targetPos.Y < -1000 and myPos.Y < -1000 then 
+        -- คำนวณเพดานบิน
+        local safeHeight = myPos.Y + 500 
+        if myPos.Y < -1000 and targetPos.Y < -1000 then 
             safeHeight = -1750 
-        elseif targetPos.Y < -1000 and myPos.Y >= -1000 then
-            -- ถ้าอยู่บนผิวดินกำลังจะลงใต้น้ำ ให้บินระดับ 800 ก่อนค่อยมุด
-            safeHeight = 600
         end
 
         if horizontalDist > 60 then
@@ -205,6 +200,7 @@ function FlySystem.IsFlyingFar(hrp)
     return (hrp.Position - currentTargetPos).Magnitude > 30
 end
 
+
 -- ============================================
 -- 📍 MAIN LOGIC : SET SPAWN -> GO TO DUNGEON
 -- ============================================
@@ -230,7 +226,7 @@ local function DoSetSpawnAndGoDungeon()
     if hum.Health <= 0 then return end
     FlySystem.Stop(hrp)
     print("[System] 🎯 ถึงจุดเซ็ตเกิดแล้ว! กำลังคุยกับ NPC...")
-    task.wait(6)
+    task.wait(7)
 
     -- 2️⃣ ทำการคุยกับ NPC เพื่อเซ็ตเกิด (อ้างอิงจากระบบเดิม)
     pcall(function()
