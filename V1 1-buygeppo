@@ -131,8 +131,8 @@ end)
 -- ============================================
 local Config = {}
 Config.FLY_SPEED = 70 
-Config.HEAD_OFFSET = 7
-Config.KILL_OFFSET = 7
+Config.HEAD_OFFSET = 8
+Config.KILL_OFFSET = 8
 Config.HIT_CHECK_DELAY = 0.15
 Config.KILL_STUCK_TIMEOUT = 32
 Config.STOP_RADIUS = 3.5
