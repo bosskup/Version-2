@@ -234,6 +234,22 @@ function LevelManager.GetBestQuest()
     return nil
 end
 
+-- [ใหม่] ค้นหาข้อมูลตารางเควส จากชื่อมอนสเตอร์บนหน้าจอ
+function LevelManager.GetQuestByMobName(uiMobName)
+    if not uiMobName then return nil end
+    local cleanName = uiMobName:lower()
+    
+    for _, data in ipairs(QUESTS) do
+        -- เช็คดูว่ามอนสเตอร์บนหน้าจอ ตรงกับ TargetMobs ในตารางเราไหม
+        for _, targetMob in ipairs(data.TargetMobs) do
+            if cleanName == targetMob:lower() then 
+                return data 
+            end
+        end
+    end
+    return nil
+end
+
 local QuestTracker = {}
 function QuestTracker.GetQuestName()
     local playerGui = LP:FindFirstChild("PlayerGui")
@@ -257,9 +273,11 @@ function QuestTracker.GetProgress()
             if child:IsA("TextLabel") or child:IsA("TextButton") then
                 local text = child.Text
                 if text then
-                    local current, total = text:match("(%d+)/(%d+)")
+                    -- 🔧 เพิ่ม %s* เพื่อดักจับช่องว่างหน้า-หลังเครื่องหมาย /
+                    local current, total = text:match("(%d+)%s*/%s*(%d+)")
                     if current and total then return tonumber(current), tonumber(total) end
-                    current, total = text:match("(%d+) of (%d+)")
+                    
+                    current, total = text:match("(%d+)%s*of%s*(%d+)")
                     if current and total then return tonumber(current), tonumber(total) end
                 end
             end
@@ -308,6 +326,31 @@ function QuestTracker.UpdateHasActiveQuest()
     else
         cachedHasQuest = true
     end
+end
+
+-- [อัปเกรด] ฟังก์ชันดึงชื่อมอนสเตอร์ รองรับช่องว่างตรงเครื่องหมายทับ
+function QuestTracker.GetActiveMobFromUI()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    local questGui = playerGui and playerGui:FindFirstChild("Quest")
+    if not questGui then return nil end
+
+    for _, obj in ipairs(questGui:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Text then
+            local text = obj.Text:gsub("<[^>]+>", "") -- ถอด Tag สี/ฟอนต์ ออกเผื่อเกมซ่อนไว้
+            
+            -- 🔧 สแกนหาแพทเทิร์น "0 / 7 MobName" (รองรับช่องว่างด้วย %s*)
+            local current, total, mobName = string.match(text, "(%d+)%s*/%s*(%d+)%s*(.+)")
+            if not mobName then
+                -- สำรองหาแพทเทิร์น "0 of 7 MobName"
+                current, total, mobName = string.match(text, "(%d+)%s*of%s*(%d+)%s*(.+)")
+            end
+            
+            if mobName then
+                return mobName:match("^%s*(.-)%s*$") -- คืนค่าชื่อแบบลบช่องว่างส่วนเกิน
+            end
+        end
+    end
+    return nil
 end
 
 -- ============================================
@@ -973,18 +1016,28 @@ task.spawn(function()
                 if tick() - spawnDelayTick < 4 then continue end
 
                 AutoEquip()
-                if not isProcessingQuest and (tick() - lastQuestTick > 1.5) then
+		    if not isProcessingQuest and (tick() - lastQuestTick > 1.5) then
                     lastQuestTick = tick()
                     QuestTracker.UpdateHasActiveQuest()
                     local isDone = QuestTracker.IsComplete()
+                    
                     if not cachedHasQuest or isDone then
                         isProcessingQuest = true 
                         FarmManager.SetQuest(nil) 
                         currentQuest = QuestManager.AutoAcceptQuest()
+                  
                         if currentQuest then FarmManager.SetQuest(currentQuest) end
                         isProcessingQuest = false
+                        
                     elseif currentQuest == nil and cachedHasQuest then
-                        currentQuest = LevelManager.GetBestQuest()
+                        -- 🎯 [ระบบใหม่] อ่านชื่อมอนสเตอร์เป้าหมายจากหน้าจอ
+                        local activeMobUI = QuestTracker.GetActiveMobFromUI()
+                        currentQuest = LevelManager.GetQuestByMobName(activeMobUI)
+                        
+                        if not currentQuest then 
+                            currentQuest = LevelManager.GetBestQuest()
+                        end
+            
                         if currentQuest then 
                             SetSpawnManager.DoSetSpawn(currentQuest)
                             FarmManager.SetQuest(currentQuest) 
