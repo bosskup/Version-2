@@ -59,6 +59,23 @@ task.wait(15)
 print("[System] ✅ ทะลุระบบป้องกันสำเร็จ! เริ่มรันสคริปต์ฟาร์ม V2 (190+) ได้เลย!")
 
 -- ============================================
+-- 🛑 AUTO KICK SYSTEM (เตะออกเมื่อเลเวล 325)
+-- ============================================
+task.spawn(function()
+    while task.wait(5) do 
+        pcall(function()
+            local playerGui = LP:FindFirstChild("PlayerGui")
+            if playerGui and playerGui:FindFirstChild("HUD") then
+                local levelText = playerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+                local levelNum = tonumber(levelText:match("%d+"))
+                if levelNum and levelNum >= 325 then
+                    LP:Kick("🛑 เลเวลถึง 325 แล้ว! ระบบทำการเตะออกเพื่อเซฟเครื่อง/หยุดฟาร์ม")
+                end
+            end
+        end)
+    end
+end)
+-- ============================================
 -- ANTI AFK (NO VIRTUAL INPUT)
 -- ============================================
 task.spawn(function()
