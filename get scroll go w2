@@ -297,8 +297,8 @@ end
 local function StartAutoWorldScrollSystem()
     local currentLevel = GetPlayerLevel()
     
-    if currentLevel < 375 then
-        print("[System] 🛑 เลเวลยังไม่ถึง 375 หยุดการทำงาน")
+    if currentLevel < 325 then
+        print("[System] 🛑 เลเวลยังไม่ถึง 325 หยุดการทำงาน")
         return
     end
 
