@@ -1,0 +1,375 @@
+-- ==========================================
+-- 📜 GPO: WORLD SCROLL AUTO WAIT, COLLECT & TURN IN (BYPASS V8 - FINAL FIX)
+-- 🛠️ อัปเดต: สลับลำดับรอ 15วิ + ปิดแชท, แก้จุดวาปโลก 2, บินสูงแค่ 100 ตอนไปวาป
+-- ==========================================
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local vim = game:GetService("VirtualInputManager")
+local Players = game:GetService("Players")
+local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
+
+_G.IsFlyingBypass = false
+_G.AutoCollectActive = true
+
+-- 📍 พิกัดที่เกี่ยวข้อง
+local FISHMAN_WARP_OUT = Vector3.new(8583.4, -2100.2, -17085.9)
+local SCROLL_WAIT_POINT = Vector3.new(-7349.2, 1.7, -14949.8)
+local GATEKEEPER_POS = Vector3.new(-8008.1, 67.7, -8537.0)
+local SECOND_SEA_WARP = Vector3.new(-8550.6, 40.5, -8373.5) -- 🔹 แก้ไขเพิ่ม - แล้ว
+
+-- ==========================================
+-- 🖱️ 1. ระบบจำลองการคลิกและกดปุ่ม
+-- ==========================================
+local function PreciseClick(guiObject)
+    if not guiObject then return end
+    pcall(function()
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        task.wait(0.05)
+        local inset = GuiService:GetGuiInset()
+        local targetX = guiObject.AbsolutePosition.X + (guiObject.AbsoluteSize.X / 2)
+        local targetY = guiObject.AbsolutePosition.Y + (guiObject.AbsoluteSize.Y / 2) + inset.Y
+        vim:SendMouseMoveEvent(targetX, targetY, game)
+        task.wait(0.1)
+        vim:SendMouseButtonEvent(targetX, targetY, 0, true, game, 0)
+        task.wait(0.05)
+        vim:SendMouseButtonEvent(targetX, targetY, 0, false, game, 0)
+    end)
+end
+
+local function PressM()
+    vim:SendKeyEvent(true, Enum.KeyCode.M, false, game)
+    task.wait(0.05)
+    vim:SendKeyEvent(false, Enum.KeyCode.M, false, game)
+    task.wait(1)
+end
+
+-- ==========================================
+-- 🗣️ 2. ระบบกดข้าม/ปิดบทสนทนา NPC
+-- ==========================================
+local function SkipNPCDialogue()
+    print("[System] 💬 กำลังรอกดปุ่มออกจากการคุยกับ NPC ให้เรียบร้อย...")
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return end
+    
+    for i = 1, 15 do
+        local dialogueActive = false
+        for _, gui in pairs(pGui:GetChildren()) do
+            if gui:IsA("ScreenGui") and (string.find(string.lower(gui.Name), "dialog") or string.find(string.lower(gui.Name), "npc")) then
+                dialogueActive = true
+                for _, obj in pairs(gui:GetDescendants()) do
+                    if obj:IsA("TextButton") and obj.Visible then
+                        PreciseClick(obj)
+                    end
+                end
+            end
+        end
+        
+        local viewport = workspace.CurrentCamera.ViewportSize
+        vim:SendMouseButtonEvent(viewport.X / 2, viewport.Y * 0.8, 0, true, game, 0)
+        task.wait(0.05)
+        vim:SendMouseButtonEvent(viewport.X / 2, viewport.Y * 0.8, 0, false, game, 0)
+        
+        vim:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.05)
+        vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        
+        if not dialogueActive and i > 4 then
+            break
+        end
+        
+        task.wait(0.6)
+    end
+    print("[System] ✅ ปิดหน้าต่างสนทนาเสร็จสมบูรณ์ พร้อมบินได้!")
+end
+
+-- ==========================================
+-- 📊 3. ฟังก์ชันเช็คเลเวล
+-- ==========================================
+local function GetPlayerLevel()
+    local levelNum = 0
+    pcall(function()
+        local playerGui = player:FindFirstChild("PlayerGui")
+        if playerGui and playerGui:FindFirstChild("HUD") then
+            local levelText = playerGui.HUD.Main.Bars.Experience.Detail.Level.Text
+            levelNum = tonumber(levelText:match("%d+"))
+        end
+    end)
+    return levelNum or 0
+end
+
+-- ==========================================
+-- 🎒 4. ฟังก์ชันเช็คไอเทม (ซ่อนใน UI และกระเป๋า)
+-- ==========================================
+local function ForceOpenInventoryCheck()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return false end
+    
+    if pGui:FindFirstChild("Inventory") and pGui.Inventory:FindFirstChild("Main") and pGui.Inventory.Main.Inventory.List:FindFirstChild("World Scroll") then
+        return true
+    end
+
+    PressM()
+    local invWheelBtn = pGui:FindFirstChild("MenuWheel") and pGui.MenuWheel.Main.Buttons:FindFirstChild("Inventory")
+    if invWheelBtn then 
+        PreciseClick(invWheelBtn) 
+        task.wait(2.5) 
+    end
+    
+    local foundInGui = false
+    if pGui:FindFirstChild("Inventory") and pGui.Inventory:FindFirstChild("Main") and pGui.Inventory.Main.Inventory.List:FindFirstChild("World Scroll") then
+        foundInGui = true
+    end
+    
+    PressM()
+    task.wait(0.5)
+    return foundInGui
+end
+
+local function HasWorldScroll()
+    local char = player.Character
+    local backpack = player:FindFirstChild("Backpack")
+    
+    if char and char:FindFirstChild("World Scroll") then return true end
+    if backpack and backpack:FindFirstChild("World Scroll") then return true end
+    
+    print("[System] 🔍 ไม่พบในช่องปกติ กำลังเช็ค Inventory แบบละเอียด...")
+    if ForceOpenInventoryCheck() then
+        print("[System] ✅ ตรวจพบ World Scroll ในหน้ากระเป๋า!")
+        return true
+    end
+    
+    return false
+end
+
+-- ==========================================
+-- 🗺️ 5. ฟังก์ชันเช็คเกาะเงือก
+-- ==========================================
+local function IsAtFishman()
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    local fishmanPart = workspace:FindFirstChild("Islands") 
+        and workspace.Islands:FindFirstChild("Fishman Island") 
+        and workspace.Islands["Fishman Island"]:FindFirstChild("Part")
+        
+    if fishmanPart and (hrp.Position - fishmanPart.Position).Magnitude < 10000 then
+        return true
+    end
+    return false
+end
+
+-- ==========================================
+-- 📡 6. ระบบกด Prompt + กล้องซูมแก้ปัญหาตัวใหญ่
+-- ==========================================
+local function ScanAndPressPrompt(targetModel, maxSearchDistance)
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    local closestPrompt = nil
+    local shortestDist = maxSearchDistance or 25 
+
+    for _, obj in pairs(targetModel:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            local parentPart = obj.Parent
+            if parentPart and parentPart:IsA("BasePart") then
+                local dist = (parentPart.Position - hrp.Position).Magnitude
+                if dist <= shortestDist then
+                    closestPrompt = obj
+                    shortestDist = dist
+                end
+            end
+        end
+    end
+
+    if closestPrompt then
+        local key = closestPrompt.KeyboardKeyCode
+        local holdTime = closestPrompt.HoldDuration
+        local targetPos = closestPrompt.Parent.Position
+        
+        local lookDir = (targetPos - hrp.Position).Unit
+        hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + Vector3.new(lookDir.X, 0, lookDir.Z))
+        
+        local camera = workspace.CurrentCamera
+        local originalCamType = camera.CameraType
+        camera.CameraType = Enum.CameraType.Scriptable
+        
+        local cameraOffset = hrp.Position + (hrp.CFrame.LookVector * -20) + Vector3.new(0, 15, 0)
+        camera.CFrame = CFrame.lookAt(cameraOffset, targetPos)
+        task.wait(0.5)
+
+        vim:SendKeyEvent(true, key, false, game)
+        task.wait(holdTime + 0.1)
+        vim:SendKeyEvent(false, key, false, game)
+        
+        camera.CameraType = originalCamType
+        print("[Scanner] ✅ สั่งกดปุ่มใช้งาน Prompt เรียบร้อย!")
+        return true
+    end
+    return false
+end
+
+-- ==========================================
+-- 💨 7. ระบบบิน BYPASS (บินสูงแค่ 100 สตั๊ดตอนไปวาป)
+-- ==========================================
+local function SpamSkyWalk2()
+    task.spawn(function()
+        local events = ReplicatedStorage:WaitForChild("Events", 10)
+        local skillRemote = events and events:WaitForChild("Skill", 5)
+        while _G.IsFlyingBypass do
+            if skillRemote then
+                local char = player.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    local args = {"Sky Walk2", {char = char, cf = char.HumanoidRootPart.CFrame}}
+                    task.spawn(function() pcall(function() skillRemote:InvokeServer(unpack(args)) end) end)
+                end
+            end
+            task.wait(0.6) 
+        end
+    end)
+end
+
+local function GPOSafeMove(targetCFrame)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local speed = 70 
+    local distance = (hrp.Position - targetCFrame.Position).Magnitude
+    local timeToReach = math.max(distance / speed, 0.1)
+    
+    local tweenInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+    
+    hrp.Anchored = false 
+    local bv = hrp:FindFirstChild("FlyBV") or Instance.new("BodyVelocity")
+    bv.Name = "FlyBV"
+    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bv.Velocity = Vector3.zero
+    bv.Parent = hrp
+    
+    tween:Play()
+    tween.Completed:Wait()
+end
+
+local function FlyToTargetBypass(targetPos, isWarpPoint)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local startY = hrp.Position.Y
+    
+    -- 🔹 กำหนดความสูง: ถ้าเป็นจุดวาร์ปให้บินขึ้นแค่ 100 สตั๊ด แต่ถ้าไปจุดอื่นให้บินขึ้น 500 สตั๊ด
+    local skyHeight = isWarpPoint and (startY + 100) or (startY + 500)
+    
+    if startY < -1000 and targetPos.Y < -1000 then 
+        skyHeight = -1750 
+    end
+    
+    _G.IsFlyingBypass = true
+    SpamSkyWalk2()
+    
+    GPOSafeMove(CFrame.new(hrp.Position.X, skyHeight, hrp.Position.Z))
+    task.wait(0.1)
+    GPOSafeMove(CFrame.new(targetPos.X, skyHeight, targetPos.Z))
+    task.wait(0.1)
+    
+    if isWarpPoint then
+        GPOSafeMove(CFrame.new(targetPos.X, targetPos.Y + 20, targetPos.Z))
+        _G.IsFlyingBypass = false
+        if hrp:FindFirstChild("FlyBV") then hrp.FlyBV:Destroy() end
+        task.wait(1) 
+        
+        hrp.CFrame = CFrame.new(targetPos)
+    else
+        GPOSafeMove(CFrame.new(targetPos))
+        _G.IsFlyingBypass = false
+        if hrp:FindFirstChild("FlyBV") then hrp.FlyBV:Destroy() end
+        hrp.Anchored = false
+    end
+end
+
+-- ==========================================
+-- 🚀 8. ลูปการทำงานหลัก (Main Flow)
+-- ==========================================
+local function StartAutoWorldScrollSystem()
+    local currentLevel = GetPlayerLevel()
+    
+    if currentLevel < 375 then
+        print("[System] 🛑 เลเวลยังไม่ถึง 375 หยุดการทำงาน")
+        return
+    end
+
+    if IsAtFishman() then
+        print("[System] 🧜‍♂️ อยู่เกาะเงือก บินไปจุดวาปออก...")
+        FlyToTargetBypass(FISHMAN_WARP_OUT, true)
+        task.wait(5) 
+    end
+
+    while _G.AutoCollectActive do
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then task.wait(1) continue end
+
+        if HasWorldScroll() then
+            print("[System] 📜 มี World Scroll แล้ว! กำลังไปหา Gatekeeper Puff...")
+            FlyToTargetBypass(GATEKEEPER_POS, false)
+            task.wait(1)
+
+            local targetNPC = workspace:FindFirstChild("NPCs") and workspace.NPCs:FindFirstChild("Gatekeeper Puff")
+            if targetNPC then
+                print("[System] 🗣️ กำลังกดคุยกับ Gatekeeper Puff...")
+                local success = ScanAndPressPrompt(targetNPC, 30) 
+                
+                if success then
+                    print("[System] ✅ เปิดหน้าต่างคุยสำเร็จ! ⏳ กำลังรอ 15 วินาที...")
+                    task.wait(15) 
+                    
+                    print("[System] 💬 หมดเวลา 15 วิ! กำลังปิดหน้าต่างบทสนทนาเพื่อปลดล็อกสกิล...")
+                    SkipNPCDialogue() 
+                    
+                    print("[System] 🌌 หน้าต่างปิดแล้ว เริ่มบินไปจุดวาร์ปโลก 2 (บินสูงแค่ 100 สตั๊ด)...")
+                    FlyToTargetBypass(SECOND_SEA_WARP, true) 
+                    
+                    print("[System] 🎉 จบกระบวนการทั้งหมด ส่งเรียบร้อย!")
+                    _G.AutoCollectActive = false 
+                    break
+                else
+                    print("[System] ❌ หา Prompt คุยไม่เจอ ลองใหม่...")
+                end
+            end
+        else
+            local effects = workspace:FindFirstChild("Effects")
+            local scroll = effects and effects:FindFirstChild("World Scroll")
+            
+            if not scroll and (hrp.Position - SCROLL_WAIT_POINT).Magnitude > 50 then
+                print("[System] 📍 ไปจุดรอเกิดคัมภีร์...")
+                FlyToTargetBypass(SCROLL_WAIT_POINT, false)
+            end
+            
+            if scroll then
+                print("[System] 📜 เจอ World Scroll เกิดแล้ว!")
+                local scrollPart = scroll:IsA("BasePart") and scroll or scroll:FindFirstChildWhichIsA("BasePart")
+                
+                if scrollPart and (hrp.Position - scrollPart.Position).Magnitude > 10 then
+                    FlyToTargetBypass(scrollPart.Position + Vector3.new(0, 2, 0), false)
+                end
+                
+                task.wait(0.5)
+                local success = ScanAndPressPrompt(scroll, 20)
+                if success then
+                    print("[System] 🎉 เก็บเสร็จ เตรียมตัวไปส่ง...")
+                    task.wait(2) 
+                end
+            else
+                print("[System] 🕒 รอเกิด...")
+            end
+        end
+        
+        task.wait(3) 
+    end
+end
+
+-- สตาร์ทสคริปต์
+StartAutoWorldScrollSystem()
