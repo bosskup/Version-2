@@ -1,13 +1,73 @@
+-- ==========================================
+-- 🛡️ ระบบตั้งต้น AUTO-EXECUTE + AUTO JOIN
+-- ==========================================
+print("[System] ⏳ กำลังรอให้ตัวเกมโหลดสมบูรณ์...")
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- 🔒 บังคับรอจนกว่า LocalPlayer จะโผล่มา
+while not Players.LocalPlayer do task.wait(0.1) end
+local LP = Players.LocalPlayer
+
+-- ============================================
+-- 🎮 AUTO JOIN GAME (ทะลุหน้าล็อบบี้)
+-- ============================================
+print("[System] ⏳ ตรวจสอบหน้าล็อบบี้ และกำลังพยายามกดเข้าเกม...")
+local Events = ReplicatedStorage:WaitForChild("Events", 10)
+if Events then
+    local playGame = Events:FindFirstChild("playgame") or Events:WaitForChild("playgame", 5)
+    if playGame then
+        -- ลูปยิงรีโมทจนกว่าจะเข้าเกมได้
+        while task.wait(1) do
+            local playerGui = LP:FindFirstChild("PlayerGui")
+            local hud = playerGui and playerGui:FindFirstChild("HUD")
+            local mainUI = hud and hud:FindFirstChild("Main")
+            
+            -- ถ้า UI หลักขึ้นแปลว่าเข้าเกมแล้ว ให้เบรคลูป
+            if mainUI and mainUI.Visible then
+                print("[System] ✅ ทะลุหน้าล็อบบี้สำเร็จ! เข้าสู่เกมแล้ว...")
+                task.wait(2) 
+                break 
+            end
+            
+            -- ยิงคำสั่งเข้าเกม
+            pcall(function()
+                playGame:FireServer("Main Game")
+                print("[System] 🎮 กำลังยิง Remote พยายามเข้า Main Game...")
+            end)
+        end
+    end
+end
+
+-- ==========================================
+-- 🛡️ ระบบรอตัวละครโหลด (Safe Spawn)
+-- ==========================================
+print("[System] ⏳ กำลังรอโมเดลตัวละครและ UI โหลดให้สมบูรณ์...")
+local char = LP.Character or LP.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart", 9e9)
+local hum = char:WaitForChild("Humanoid", 9e9)
+
+local playerGui = LP:WaitForChild("PlayerGui", 9e9)
+local hud = playerGui:WaitForChild("HUD", 9e9)
+hud:WaitForChild("Main", 9e9)
+
+-- กันบัคสคริปต์ทำงานตอนเป็นวิญญาณ (เลือด 0)
+repeat task.wait(0.5) until hum.Health > 0
+
+print("[System] 🛡️ ตัวละครพร้อมแล้ว! รอดีเลย์ 5 วินาทีก่อนเช็คระบบ...")
+task.wait(5)
+
 -- ============================================
 -- 🔄 AUTO REJOIN SYSTEM
 -- ============================================
 local function SetupAutoRejoin()
     local GuiService = game:GetService("GuiService")
     local TeleportService = game:GetService("TeleportService")
-    local Players = game:GetService("Players")
 
     GuiService.ErrorMessageChanged:Connect(function(errorMessage)
-        print("[System] 🔄 ตรวจพบการตัดการเชื่อมต่อ! กำลังเข้าเกมใหม่ใน 5 วินาที...")
+        print("[System] 🔄 ตรวจพบการหลุด! กำลังเข้าเกมใหม่ใน 5 วินาที...")
         task.wait(5)
         pcall(function()
             TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
@@ -19,9 +79,6 @@ task.spawn(SetupAutoRejoin)
 -- ============================================
 -- 🔍 SYSTEM CHECK (ตรวจเช็คเงื่อนไขก่อนเริ่มฟาร์ม)
 -- ============================================
-local Players = game:GetService("Players")
-local LP = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-
 local function getLevel()
     local lv = 0
     pcall(function()
@@ -31,28 +88,24 @@ local function getLevel()
     return lv or 0
 end
 
--- 🌊 อัปเดตระบบเช็คเกาะเงือกให้แม่นยำขึ้น
 local function isAtFishmanIsland()
     local atIsland = false
     pcall(function()
-        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-
         local myPos = hrp.Position
 
-        -- 1. เช็คจากจุดศูนย์กลางเกาะ (ขยายรัศมีเป็น 3000 สตัด)
+        -- 1. เช็คจากศูนย์กลางเกาะ
         local islandPart = workspace.Islands:FindFirstChild("Fishman Island") and workspace.Islands["Fishman Island"]:FindFirstChild("Part")
         if islandPart and (myPos - islandPart.Position).Magnitude < 3000 then
             atIsland = true
         end
 
-        -- 2. เช็คจากพิกัดของ NPC Becky (จุดรับเควสเกาะเงือก) ขยายรัศมีกว้างๆ
+        -- 2. เช็คจาก NPC Becky
         local beckyPos = Vector3.new(7731.1, -2176.1, -17222.7)
         if (myPos - beckyPos).Magnitude < 3000 then
             atIsland = true
         end
 
-        -- 3. เช็คจากความลึก (เกาะเงือกอยู่ใต้น้ำ แกน Y จะติดลบเยอะมาก)
+        -- 3. เช็คจากความลึก
         if myPos.Y < -1000 then
             atIsland = true
         end
@@ -60,11 +113,8 @@ local function isAtFishmanIsland()
     return atIsland
 end
 
--- 🦅 ฟังก์ชันเช็ค Geppo
 local function HasGeppo()
-    local RS = game:GetService("ReplicatedStorage")
-    local statsPath = RS:FindFirstChild("Stats" .. LP.Name) or RS:FindFirstChild("Stats")
-    
+    local statsPath = ReplicatedStorage:FindFirstChild("Stats" .. LP.Name) or ReplicatedStorage:FindFirstChild("Stats")
     if statsPath then
         local skills = statsPath:FindFirstChild("Skills")
         if skills then
@@ -91,7 +141,6 @@ local hasGeppoSkill = HasGeppo()
 -- ============================================
 
 if currentLv < 190 and not hasGeppoSkill then
-    -- 🚜 กรณีที่ 1: เลเวล < 190 และ "ยังไม่มี Geppo" 
     print("[System] 🌾 กรณีที่ 1: รัน Auto Farm V1 (ใช้ Dash ฟาร์มปกติ + หาเงินซื้อ Geppo)")
     task.spawn(function()
         local success, err = pcall(function()
@@ -101,7 +150,6 @@ if currentLv < 190 and not hasGeppoSkill then
     end)
 
 elseif currentLv < 190 and hasGeppoSkill then
-    -- 🌟 กรณีที่ 4: เลเวล < 190 แต่ "มี Geppo แล้ว!"
     print("[System] 🌟 กรณีที่ 4: รัน Auto Farm V4 (ใช้ Geppo ฟาร์มโลกปกติ)")
     task.spawn(function()
         local success, err = pcall(function()
@@ -111,49 +159,23 @@ elseif currentLv < 190 and hasGeppoSkill then
     end)
 
 elseif currentLv >= 190 and not alreadyAtFishman then
-    -- 🚀 กรณีที่ 2: เลเวล 190+ บินขึ้นฟ้าก่อนแล้วพุ่งทะยานไปเกาะเงือก
     print("[System] 🚨 กรณีที่ 2: เลเวล 190 แล้ว! กำลังพุ่งทะยานขึ้นฟ้าไปเกาะเงือกด้วย Geppo...")
     
     local RunService = game:GetService("RunService")
     local TweenService = game:GetService("TweenService")
-    local SkillRemote = game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("Skill")
+    local SkillRemote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Skill")
     
-    -- ==========================================
-    -- 🛡️ ระบบป้องกันโดนแบนตอนเข้าเกม (Safe Spawn Injection)
-    -- ==========================================
-    print("[System] ⏳ กำลังรอให้ตัวเกมโหลดเสร็จสมบูรณ์...")
-    if not game:IsLoaded() then game.Loaded:Wait() end
-
-    local char = LP.Character or LP.CharacterAdded:Wait()
-    print("[System] ⏳ กำลังรอให้ร่างกายตัวละครประกอบเสร็จ...")
-
-    local hrp = char:WaitForChild("HumanoidRootPart", 9e9)
-    local hum = char:WaitForChild("Humanoid", 9e9)
-
-    repeat task.wait(0.5) until hum.Health > 0
-
-    print("[System] 🛡️ ตัวละครเกิดแล้ว! กำลังเข้าโหมดพรางตัว แกล้งยืนนิ่ง 15 วินาที...")
-    task.wait(15) 
-    
-    -- ☁️ สร้าง Waypoints ให้พุ่งขึ้นฟ้าก่อน
-    local waypoints = {}
-    local myPos = hrp.Position
-    local skyHeight = 1000 -- ปรับระดับความสูงของชั้นฟ้าได้ตามต้องการ
-    
-    -- จุดที่ 1: พุ่งขึ้นฟ้าเป็นแนวดิ่งจากจุดที่ยืนอยู่
-    table.insert(waypoints, Vector3.new(myPos.X, skyHeight, myPos.Z))
-    -- จุดที่ 2: บินแนวราบบนฟ้า ข้ามไปอยู่เหนือจุดทางเข้า
-    table.insert(waypoints, Vector3.new(639.8, skyHeight, -11305.7))
-    
-    -- จุดหมายดั้งเดิม: ดิ่งลงมาจากฟ้าเข้าสู่พอร์ทัล
-    table.insert(waypoints, Vector3.new(639.8, -6.6, -11305.7))
-    table.insert(waypoints, Vector3.new(1744.9, -94.2, -12328.0))
-    table.insert(waypoints, Vector3.new(1793.73, -92.76, -12327.45))
+    local waypoints = {
+        Vector3.new(hrp.Position.X, 1000, hrp.Position.Z),
+        Vector3.new(639.8, 1000, -11305.7),
+        Vector3.new(639.8, -6.6, -11305.7),
+        Vector3.new(1744.9, -94.2, -12328.0),
+        Vector3.new(1793.73, -92.76, -12327.45)
+    }
     
     local currentWaypoint = 1
     local isAutoFlying = true
     
-    -- ทะลุกำแพง
     local noclip = RunService.Stepped:Connect(function()
         if LP.Character then
             for _, v in pairs(LP.Character:GetDescendants()) do
@@ -173,7 +195,6 @@ elseif currentLv >= 190 and not alreadyAtFishman then
             local hrpUpdate = charUpdate and charUpdate:FindFirstChild("HumanoidRootPart")
             if not hrpUpdate then task.wait(1) continue end
             
-            -- 🦅 เรียกรีโมท Geppo ทุกๆ 0.5 วินาทีระหว่างบิน
             if tick() - lastGeppoTick >= 0.5 then
                 lastGeppoTick = tick()
                 pcall(function() 
@@ -188,7 +209,6 @@ elseif currentLv >= 190 and not alreadyAtFishman then
             local dist = (target - hrpUpdate.Position).Magnitude
             
             if dist < 5 then
-                print("[System] ✅ ผ่านจุดที่ " .. currentWaypoint)
                 currentWaypoint = currentWaypoint + 1
                 if currentWaypoint > #waypoints then
                     isAutoFlying = false
@@ -198,60 +218,38 @@ elseif currentLv >= 190 and not alreadyAtFishman then
                     local bv = hrpUpdate:FindFirstChild("FlyBV")
                     if bv then bv:Destroy() end
                     
-                    print("[System] 🎯 ถึงหน้าพอร์ทัลแล้ว! รอวาร์ปเข้าเกาะเงือก 3 วินาทีเพื่อรันตัวฟาร์ม...")
-                    task.wait(3) -- รอให้ตัวละครวาร์ปเสร็จสมบูรณ์
+                    print("[System] 🎯 ถึงพอร์ทัล! รอ 3 วิแล้วเริ่มฟาร์มเกาะเงือก...")
+                    task.wait(3) 
                     
-                    print("[System] ⚡ เริ่มรัน Auto Farm V2 (ฟาร์มเกาะเงือก)!")
                     task.spawn(function()
-                        local success, err = pcall(function()
-                            loadstring(game:HttpGet("https://raw.githubusercontent.com/bosskup/Version-2/refs/heads/main/V2%20190%2B"))()
-                        end)
-                        if not success then print("❌ Error V2: " .. tostring(err)) end
+                        pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/bosskup/Version-2/refs/heads/main/V2%20190%2B"))() end)
                     end)
-                    
                     break
                 end
                 target = waypoints[currentWaypoint]
             end
 
-            local finalTarget = target
-
-            -- อัปเดต Tween 
-            if not currentTargetPos or (currentTargetPos - finalTarget).Magnitude > 5 or not activeTween or activeTween.PlaybackState ~= Enum.PlaybackState.Playing then
+            if not currentTargetPos or (currentTargetPos - target).Magnitude > 5 or not activeTween or activeTween.PlaybackState ~= Enum.PlaybackState.Playing then
                 if activeTween then activeTween:Cancel() end
-                currentTargetPos = finalTarget
+                currentTargetPos = target
                 
-                local timeToReach = (finalTarget - hrpUpdate.Position).Magnitude / FLY_SPEED
-                local tInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
-                
-                local bv = hrpUpdate:FindFirstChild("FlyBV")
-                if not bv then
-                    bv = Instance.new("BodyVelocity")
-                    bv.Name = "FlyBV"
-                    bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
-                    bv.Velocity = Vector3.zero
-                    bv.Parent = hrpUpdate
-                end
+                local timeToReach = (target - hrpUpdate.Position).Magnitude / FLY_SPEED
+                local bv = hrpUpdate:FindFirstChild("FlyBV") or Instance.new("BodyVelocity", hrpUpdate)
+                bv.Name = "FlyBV"
+                bv.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+                bv.Velocity = Vector3.zero
 
-                local lookPos = Vector3.new(finalTarget.X, hrpUpdate.Position.Y, finalTarget.Z)
-                local lookRot = CFrame.new(hrpUpdate.Position)
-                -- กันบัคตอนดิ่งขึ้น/ดิ่งลงตรงๆ ให้มองไปที่เป้าหมาย
-                if (lookPos - hrpUpdate.Position).Magnitude > 0.1 then
-                    lookRot = CFrame.lookAt(hrpUpdate.Position, lookPos).Rotation
-                else
-                    lookRot = CFrame.lookAt(hrpUpdate.Position, finalTarget).Rotation
-                end
+                local lookPos = Vector3.new(target.X, hrpUpdate.Position.Y, target.Z)
+                local lookRot = (lookPos - hrpUpdate.Position).Magnitude > 0.1 and CFrame.lookAt(hrpUpdate.Position, lookPos).Rotation or CFrame.lookAt(hrpUpdate.Position, target).Rotation
 
-                activeTween = TweenService:Create(hrpUpdate, tInfo, {CFrame = CFrame.new(finalTarget) * lookRot})
+                activeTween = TweenService:Create(hrpUpdate, TweenInfo.new(timeToReach, Enum.EasingStyle.Linear), {CFrame = CFrame.new(target) * lookRot})
                 activeTween:Play()
             end
-            
             task.wait(0.1)
         end
     end)
 
 elseif currentLv >= 190 and alreadyAtFishman then
-    -- 🔱 กรณีที่ 3: เลเวล 190+ และ "อยู่เกาะเงือกแล้ว"
     print("[System] 🔱 กรณีที่ 3: รัน Auto Farm V2 (ฟาร์มเกาะเงือกด้วย Geppo)")
     task.spawn(function()
         local success, err = pcall(function()
@@ -259,4 +257,4 @@ elseif currentLv >= 190 and alreadyAtFishman then
         end)
         if not success then print("❌ Error V2: " .. tostring(err)) end
     end)
-end 
+end
