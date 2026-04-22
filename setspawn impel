@@ -258,8 +258,8 @@ local function RunMasterDungeonScript()
     if hum.Health <= 0 then return end
     FlySystem.Stop(hrp)
     
-    print("[System] ⏳ ถึงจุดเซ็ตเกิด! รอ 5 วินาทีเพื่อให้ Map & NPC โหลด...")
-    task.wait(5)
+    print("[System] ⏳ ถึงจุดเซ็ตเกิด! รอ 8 วินาทีเพื่อให้ Map & NPC โหลด...")
+    task.wait(8)
 
     print("[System] 💬 ยิง Remote เซ็ตจุดเกิด...")
     pcall(function()
