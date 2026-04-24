@@ -1222,3 +1222,23 @@ if _G.LowCPUMode then
     end)
     print("[System] 🖥️ เปิดใช้งานโหมดจอดำประหยัดทรัพยากร (FPS Cap: " .. tostring(_G.FPSCap) .. ")")
 end
+task.spawn(function()
+    local success, err = pcall(AutoDungeonSweep)
+    if not success then
+        warn("[System - 🚨 RESCUE] ตรวจพบ Error ร้ายแรงในสคริปต์: " .. tostring(err))
+        getgenv().isSweeping = false
+        
+        -- ลบระบบบินทิ้งทันทีเพื่อให้ตกลงพื้น ป้องกัน Anti-Cheat จับการลอยค้าง
+        if LP.Character then
+            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Anchored = false
+                local bv = hrp:FindFirstChild("FlyBV")
+                if bv then
+                    bv:Destroy()
+                end
+                print("[System - 🚨 RESCUE] ทำการลบ BodyVelocity และ Anchored ออกแล้ว ตัวละครกำลังร่วงลงพื้นตามปกติ!")
+            end
+        end
+    end
+end)
