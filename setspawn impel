@@ -1,65 +1,51 @@
 -- ============================================
--- 🏆 MASTER SCRIPT: AUTO IMPEL DOWN (SET SPAWN + DUNGEON PREP ONLY)
+-- 🚀 AUTO FLY & SET SPAWN SYSTEM (Extracted from V2 190+)
 -- ============================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
 
+-- 📍 พิกัดเป้าหมาย (Impel Down)
+local IMPEL_SPAWN_POINT = Vector3.new(5937.7, 6.0, -9470.0)
+local FLY_SPEED = 70
+
+-- 📡 Remotes สำหรับการเซ็ตจุดเกิด
 local Events = ReplicatedStorage:WaitForChild("Events")
 local QuestRemote = Events:WaitForChild("Quest")
 local SetSpawnRemote = Events:WaitForChild("SetSpawn")
-local SkillRemote = Events:WaitForChild("Skill")
-
--- ⚙️ ตั้งค่าพื้นฐาน
-local Config = {
-    FLY_SPEED = 70,
-    STOP_RADIUS = 3.5,
-    HEAD_OFFSET = 7
-}
-
-local IMPEL_SPAWN_POINT = Vector3.new(5937.7, 6.0, -9470.0)
-local IMPEL_DUNGEON_POINT = Vector3.new(5883.0, 12.3, -10219.5)
 
 -- ============================================
--- 🦅 ระบบ NOCLIP & GEPPO (ป้องกันการติดขัด)
+-- 🦅 ระบบ NOCLIP (ปิดการชน)
 -- ============================================
+local function bypassOverlap(part)
+    if part:IsA("BasePart") then
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+        for _, child in pairs(part:GetChildren()) do
+            if child:IsA("TouchTransmitter") then child:Destroy() end
+        end
+    end
+end
+
 local noclipConnection = RunService.Stepped:Connect(function()
     local char = LP.Character
     if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end
-end)
-
-task.spawn(function()
-    while task.wait(0.5) do
-        if LP.Character then
-            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                pcall(function() 
-                    SkillRemote:InvokeServer(unpack({
-                        "Sky Walk2",
-                        { char = LP.Character, cf = hrp.CFrame }
-                    })) 
-                end)
-            end
+        for _, part in ipairs(char:GetDescendants()) do 
+            bypassOverlap(part) 
         end
     end
 end)
 
 -- ============================================
--- 🚀 HYBRID FLY SYSTEM (ANTI-TP CHECK + HEIGHT FIX)
+-- 🚀 HYBRID FLY SYSTEM (V8 INTEGRATED + TWEEN)
 -- ============================================
 local FlySystem = {}
 local activeTween = nil
 local currentTargetPos = nil
-FlySystem.lastHrpPos = nil 
 
 function FlySystem.Stop(hrp)
     if activeTween then
@@ -67,59 +53,44 @@ function FlySystem.Stop(hrp)
         activeTween = nil
         currentTargetPos = nil
     end
-    FlySystem.lastHrpPos = nil
-    
     if hrp then
-        hrp.Anchored = false 
+        hrp.Anchored = false
         hrp.Velocity = Vector3.zero
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         local bv = hrp:FindFirstChild("FlyBV")
-        if bv then bv.Velocity = Vector3.zero end
+        if bv then bv:Destroy() end
     end
 end
 
 function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if not targetPos or not hrp then return false end
-    stopRadius = stopRadius or Config.STOP_RADIUS
+    stopRadius = stopRadius or 3.5
     local distance = (targetPos - hrp.Position).Magnitude
     
     if distance <= stopRadius then
         FlySystem.Stop(hrp)
         return true
     end
-
-    if FlySystem.lastHrpPos and (hrp.Position - FlySystem.lastHrpPos).Magnitude > 50 then
-        if activeTween then
-            activeTween:Cancel()
-            activeTween = nil
-            currentTargetPos = nil
-            hrp.Anchored = false 
-        end
-    end
-    FlySystem.lastHrpPos = hrp.Position 
     
     local myPos = hrp.Position
     local finalTarget = targetPos
 
+    -- 🌊 ระบบบิน 3-Phase (บินขึ้นฟ้า -> ข้ามแมพ -> ดิ่งลงดิน)
     if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        local safeHeight = targetPos.Y + 600 
-        if targetPos.Y < -1000 and myPos.Y < -1000 then 
-            safeHeight = -1750 
-        elseif targetPos.Y < -1000 and myPos.Y >= -1000 then
-            safeHeight = 600
-        end
+        local safeHeight = myPos.Y + 500 
+        if myPos.Y < -1000 and targetPos.Y < -1000 then safeHeight = -1750 end
 
         if horizontalDist > 60 then
             if myPos.Y < safeHeight - 15 then
-                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z)
+                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z) -- Phase 1: บินขึ้นฟ้า
             else
-                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z)
+                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z) -- Phase 2: ข้ามแมพ
             end
         else
-            finalTarget = targetPos
+            finalTarget = targetPos -- Phase 3: ดิ่งลง
         end
     end
 
@@ -135,11 +106,13 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     end
 
     if distToFinal > 30 then
+        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อทะลุกำแพง
         bv.Velocity = Vector3.zero 
         
         local yDiff = math.abs(finalTarget.Y - hrp.Position.Y)
         local xzDiff = (Vector3.new(finalTarget.X, 0, finalTarget.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
         
+        -- ล็อคตัวแข็งถ้าบินแนวตั้งมากกว่าแนวนอน
         if yDiff > xzDiff and distToFinal > 30 then 
             hrp.Anchored = true
         else
@@ -150,7 +123,7 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             if activeTween then activeTween:Cancel() end
             currentTargetPos = finalTarget
             
-            local currentSpeed = speed or Config.FLY_SPEED
+            local currentSpeed = speed or FLY_SPEED
             local timeToReach = distToFinal / currentSpeed
             local tInfo = TweenInfo.new(timeToReach, Enum.EasingStyle.Linear)
 
@@ -166,21 +139,21 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             activeTween:Play()
         end
     else
+        -- ⚔️ [ระยะใกล้] ปิด Tween ใช้ BodyVelocity แทน
         if activeTween then 
             activeTween:Cancel() 
             activeTween = nil
             currentTargetPos = nil
         end
         
-        hrp.Anchored = false
-        
-        local currentSpeed = speed or Config.FLY_SPEED
+        hrp.Anchored = false 
+        local currentSpeed = speed or FLY_SPEED
         local dir = (finalTarget - hrp.Position).Unit
         bv.Velocity = dir * currentSpeed
         
         local lookPos = Vector3.new(finalTarget.X, hrp.Position.Y, finalTarget.Z)
         if (lookPos - hrp.Position).Magnitude > 0.1 then
-            hrp.CFrame = CFrame.new(hrp.Position, lookPos)
+            hrp.CFrame = CFrame.lookAt(hrp.Position, lookPos)
         end
     end
 
@@ -188,103 +161,46 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
 end
 
 -- ============================================
--- 📍 MAIN MASTER LOGIC
+-- 📍 MAIN LOGIC : บินไปเซ็ตจุดเกิด
 -- ============================================
-
-local function CheckIfAlreadyAtSpawn(hrp)
-    if (hrp.Position - IMPEL_SPAWN_POINT).Magnitude < 150 then
-        return true
-    end
-    
-    local success, isAtPart = pcall(function()
-        local spawnPart = workspace.Islands["Impel Base"].ImpelBase.Part
-        if spawnPart and (hrp.Position - spawnPart.Position).Magnitude < 150 then
-            return true
-        end
-        return false
-    end)
-    
-    if success and isAtPart then return true end
-    return false
-end
-
-local function RunMasterDungeonScript()
+local function AutoSetSpawn()
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hrp = char:WaitForChild("HumanoidRootPart", 9e9)
     local hum = char:WaitForChild("Humanoid", 9e9)
-
+    
     repeat task.wait(0.5) until hum.Health > 0
-    task.wait(1)
+    print("[System] 🚀 กำลังบินไปเซ็ตจุดเกิดที่พิกัดกำหนด...")
 
-    if CheckIfAlreadyAtSpawn(hrp) then
-        print("[System] ✨ ตรวจพบว่าตัวละครอยู่ที่ Impel Base อยู่แล้ว (ข้ามการเซ็ตจุดเกิด)")
-    else
-        print("[System] 📍 [1/2] เดินทางไปจุดเกิด Impel Down...")
-        while LP.Character == char and hrp and hum.Health > 0 do
-            if FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, Config.FLY_SPEED, true) then break end
-            task.wait()
-        end
-
-        if hum.Health <= 0 then return end
-        FlySystem.Stop(hrp)
-        
-        print("[System] ⏳ ถึงจุดเซ็ตเกิด! รอ 10 วินาทีเพื่อให้ Map & NPC โหลด...")
-        task.wait(10)
-
-        print("[System] 💬 เริ่มกระบวนการเซ็ตจุดเกิด (ยิงซ้ำ 3 รอบ)...")
-        pcall(function()
-            QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
-            task.wait(0.5)
-            for i = 1, 3 do 
-                SetSpawnRemote:FireServer() 
-                print("[System] 🔄 เซ็ตจุดเกิดรอบที่: " .. i)
-                task.wait(0.5)
-            end
-            QuestRemote:InvokeServer(unpack({{"npcChat", false}}))
-        end)
-        print("[System] ✅ เซ็ตจุดเกิดเสร็จสิ้นทั้ง 3 รอบ!")
-        task.wait(1)
-    end
-
-    print("[System] 🚪 [2/2] เดินทางไปจุดลงดันเจี้ยน...")
-    while LP.Character == char and hrp and hum.Health > 0 do
-        if FlySystem.AdjustToTarget(hrp, IMPEL_DUNGEON_POINT, 3, Config.FLY_SPEED, true) then break end
+    -- ลูปบินจนกว่าจะถึงระยะ 3 หน่วยจากพิกัดเป้าหมาย
+    while hum.Health > 0 and (hrp.Position - IMPEL_SPAWN_POINT).Magnitude > 3 do
+        FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, FLY_SPEED, true) -- true เพื่อเปิดโหมดบินขึ้นฟ้า
         task.wait()
     end
 
+    -- หยุดบินเมื่อถึงที่หมาย
     FlySystem.Stop(hrp)
-    print("[System] 🏁 ถึงหน้าจุดลงดันเจี้ยนแล้ว! สิ้นสุดการทำงาน")
+    task.wait(1)
 
-    if noclipConnection then noclipConnection:Disconnect() end
+    print("[System] 📍 ถึงจุดหมายแล้ว กำลังกดยืนยันจุดเกิด...")
+    
+    -- ทำการยิง Remote เพื่อคุยกับ NPC เซ็ตจุดเกิด
+    pcall(function()
+        QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
+        task.wait(0.5)
+        for i = 1, 3 do 
+            SetSpawnRemote:FireServer() 
+            task.wait(0.3) 
+        end
+        QuestRemote:InvokeServer(unpack({{"npcChat", false}}))
+    end)
+    
+    print("[System] ✅ เซ็ตจุดเกิดสำเร็จแล้ว!")
+    
+    -- ปิด Noclip หลังทำเสร็จเพื่อให้ตัวละครเล่นตามปกติได้
+    if noclipConnection then
+        noclipConnection:Disconnect()
+    end
 end
 
--- ============================================
--- 🛡️ ระบบรันสคริปต์พร้อม Failsafe (Rescue Mode)
--- ============================================
-task.spawn(function()
-    local success, err = pcall(RunMasterDungeonScript)
-    if not success then
-        warn("[System - 🚨 RESCUE] ตรวจพบ Error ร้ายแรงในสคริปต์: " .. tostring(err))
-        
-        -- ปิดระบบเกี่ยวกับการวนซ้ำภายนอก (ถ้ามี)
-        if getgenv then 
-            pcall(function() getgenv().isSweeping = false end)
-        end
-        
-        -- ป้องกันการร่วงทะลุโลก
-        if noclipConnection then noclipConnection:Disconnect() end
-        
-        -- ลบระบบบินทิ้งทันทีเพื่อให้ตกลงพื้น ป้องกัน Anti-Cheat จับการลอยค้าง
-        if LP.Character then
-            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.Anchored = false
-                local bv = hrp:FindFirstChild("FlyBV")
-                if bv then
-                    bv:Destroy()
-                end
-                print("[System - 🚨 RESCUE] ทำการลบ BodyVelocity และ Anchored ออกแล้ว ตัวละครกำลังร่วงลงพื้นตามปกติ!")
-            end
-        end
-    end
-end)
+-- สั่งเริ่มการทำงาน
+task.spawn(AutoSetSpawn)
