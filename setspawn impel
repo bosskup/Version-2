@@ -1,5 +1,5 @@
 -- ============================================
--- 🚀 AUTO FLY & SET SPAWN SYSTEM (Extracted from V2 190+)
+-- 🚀 AUTO FLY & SET SPAWN SYSTEM (Fixed Height + Geppo Remote)
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -12,13 +12,35 @@ local LP = Players.LocalPlayer
 local IMPEL_SPAWN_POINT = Vector3.new(5937.7, 6.0, -9470.0)
 local FLY_SPEED = 70
 
--- 📡 Remotes สำหรับการเซ็ตจุดเกิด
+-- 📡 Remotes 
 local Events = ReplicatedStorage:WaitForChild("Events")
 local QuestRemote = Events:WaitForChild("Quest")
 local SetSpawnRemote = Events:WaitForChild("SetSpawn")
+local SkillRemote = Events:WaitForChild("Skill") -- เพิ่มตัวแปร Skill รีโมท
 
 -- ============================================
--- 🦅 ระบบ NOCLIP (ปิดการชน)
+-- 🦅 ระบบ GEPPO (ส่ง Remote เพื่อป้องกัน Anti-Cheat ตอนบิน)
+-- ============================================
+local isFlyingProcess = true -- ตัวแปรควบคุมการทำงาน
+
+task.spawn(function()
+    while isFlyingProcess do
+        task.wait(0.5)
+        local char = LP.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- ยิง Remote เสมือนว่าเรากำลังกดสกิลเดินบนอากาศอยู่
+                pcall(function() 
+                    SkillRemote:InvokeServer("Sky Walk2", { char = char, cf = hrp.CFrame }) 
+                end)
+            end
+        end
+    end
+end)
+
+-- ============================================
+-- 👻 ระบบ NOCLIP (ปิดการชน)
 -- ============================================
 local function bypassOverlap(part)
     if part:IsA("BasePart") then
@@ -76,30 +98,28 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     local myPos = hrp.Position
     local finalTarget = targetPos
 
-    -- 🌊 ระบบบิน 3-Phase (บินขึ้นฟ้า -> ข้ามแมพ -> ดิ่งลงดิน)
+    -- 🌊 ระบบบิน 3-Phase
     if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        -- [แก้ไขแล้ว] กำหนดเพดานบินแบบตายตัว จะได้ไม่บวกหนีไปเรื่อยๆ
+        -- ล็อคเพดานบินตายตัว เพื่อแก้บัคบินสูงไม่หยุด
         local safeHeight = 500 
-        -- ถ้ายืนอยู่สูงกว่า 500 หรือเป้าหมายอยู่สูงกว่า 500 ให้บวกเพิ่มจากเป้าหมายไปอีก 200
         if myPos.Y > 500 or targetPos.Y > 500 then
             safeHeight = math.max(myPos.Y, targetPos.Y) + 200
         end
 
-        -- ล็อคความสูงสำหรับเกาะเงือก (ใต้น้ำลึก)
         if myPos.Y < -1000 and targetPos.Y < -1000 then 
             safeHeight = -1750 
         end
 
         if horizontalDist > 60 then
             if myPos.Y < safeHeight - 15 then
-                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z) -- Phase 1: บินขึ้นฟ้า
+                finalTarget = Vector3.new(myPos.X, safeHeight, myPos.Z) -- บินขึ้น
             else
-                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z) -- Phase 2: ข้ามแมพ
+                finalTarget = Vector3.new(targetPos.X, safeHeight, targetPos.Z) -- บินข้าม
             end
         else
-            finalTarget = targetPos -- Phase 3: ดิ่งลง
+            finalTarget = targetPos -- ดิ่งลง
         end
     end
 
@@ -115,13 +135,11 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     end
 
     if distToFinal > 30 then
-        -- 🚀 [ระยะไกล] ใช้ TWEEN เพื่อทะลุกำแพง
         bv.Velocity = Vector3.zero 
         
         local yDiff = math.abs(finalTarget.Y - hrp.Position.Y)
         local xzDiff = (Vector3.new(finalTarget.X, 0, finalTarget.Z) - Vector3.new(hrp.Position.X, 0, hrp.Position.Z)).Magnitude
         
-        -- ล็อคตัวแข็งถ้าบินแนวตั้งมากกว่าแนวนอน
         if yDiff > xzDiff and distToFinal > 30 then 
             hrp.Anchored = true
         else
@@ -148,7 +166,6 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
             activeTween:Play()
         end
     else
-        -- ⚔️ [ระยะใกล้] ปิด Tween ใช้ BodyVelocity แทน
         if activeTween then 
             activeTween:Cancel() 
             activeTween = nil
@@ -180,19 +197,16 @@ local function AutoSetSpawn()
     repeat task.wait(0.5) until hum.Health > 0
     print("[System] 🚀 กำลังบินไปเซ็ตจุดเกิดที่พิกัดกำหนด...")
 
-    -- ลูปบินจนกว่าจะถึงระยะ 3 หน่วยจากพิกัดเป้าหมาย
     while hum.Health > 0 and (hrp.Position - IMPEL_SPAWN_POINT).Magnitude > 3 do
-        FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, FLY_SPEED, true) -- true เพื่อเปิดโหมดบินขึ้นฟ้า
+        FlySystem.AdjustToTarget(hrp, IMPEL_SPAWN_POINT, 3, FLY_SPEED, true)
         task.wait()
     end
 
-    -- หยุดบินเมื่อถึงที่หมาย
     FlySystem.Stop(hrp)
     task.wait(1)
 
     print("[System] 📍 ถึงจุดหมายแล้ว กำลังกดยืนยันจุดเกิด...")
     
-    -- ทำการยิง Remote เพื่อคุยกับ NPC เซ็ตจุดเกิด
     pcall(function()
         QuestRemote:InvokeServer(unpack({{"npcChat", true}}))
         task.wait(0.5)
@@ -205,13 +219,11 @@ local function AutoSetSpawn()
     
     print("[System] ✅ เซ็ตจุดเกิดสำเร็จแล้ว!")
     
-    -- ปิด Noclip หลังทำเสร็จเพื่อให้ตัวละครเล่นตามปกติได้
-    if noclipConnection then
-        noclipConnection:Disconnect()
-    end
+    -- เคลียร์การทำงานทั้งหมด
+    isFlyingProcess = false 
+    if noclipConnection then noclipConnection:Disconnect() end
 end
 
--- สั่งเริ่มการทำงาน
 task.spawn(AutoSetSpawn)
 
 task.spawn(function()
