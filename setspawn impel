@@ -80,8 +80,17 @@ function FlySystem.AdjustToTarget(hrp, targetPos, stopRadius, speed, goHigh)
     if goHigh or distance > 150 then
         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
         
-        local safeHeight = myPos.Y + 500 
-        if myPos.Y < -1000 and targetPos.Y < -1000 then safeHeight = -1750 end
+        -- [แก้ไขแล้ว] กำหนดเพดานบินแบบตายตัว จะได้ไม่บวกหนีไปเรื่อยๆ
+        local safeHeight = 500 
+        -- ถ้ายืนอยู่สูงกว่า 500 หรือเป้าหมายอยู่สูงกว่า 500 ให้บวกเพิ่มจากเป้าหมายไปอีก 200
+        if myPos.Y > 500 or targetPos.Y > 500 then
+            safeHeight = math.max(myPos.Y, targetPos.Y) + 200
+        end
+
+        -- ล็อคความสูงสำหรับเกาะเงือก (ใต้น้ำลึก)
+        if myPos.Y < -1000 and targetPos.Y < -1000 then 
+            safeHeight = -1750 
+        end
 
         if horizontalDist > 60 then
             if myPos.Y < safeHeight - 15 then
